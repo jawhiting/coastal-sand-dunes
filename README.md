@@ -1,64 +1,80 @@
 # Coastal Sand Dunes Explorer
 
-A realistic 3D coastal sand dunes environment built with Three.js, featuring dramatic height variations and an animated ocean.
+A realistic, interactive 3D coastal sand-dune landscape built with Three.js. It features procedurally generated, wind-shaped dunes, physically-based sky and sun, reflective animated water, and a live control panel.
 
 ## Features
 
-- **Massive procedurally generated sand dunes** with extreme height variance (0-300+ units)
-- **Coastal environment** with dunes tapering down to meet the ocean
-- **Animated ocean** with realistic wave motion
-- **First-person controls** with walk and fly modes
-- **Dynamic lighting** with shadows and atmospheric fog
-- **Realistic sand materials** with color variation
+- **Realistic procedural dunes** using Perlin noise (FBM + domain warping) with wind-aligned ridged crests for natural, non-repeating dune fields
+- **Physically-based sky & sun** (Rayleigh/Mie scattering) with an adjustable time of day
+- **Image-based lighting** — the sky is baked into an environment map so the sand is lit by the sky
+- **Reflective, animated ocean** with sun glints and wind-driven waves
+- **Realistic sand shading** — colors vary by height, slope, and moisture (wet sand at the shoreline, bright crests, shadowed lee faces), plus a procedural wind-ripple normal map
+- **Coastal island taper** so the dunes descend into the surrounding sea
+- **Live control panel** to change sun position, wind, exposure, and regenerate the terrain
+- **First-person navigation** with walk and fly modes, ACES tone mapping, and soft shadows
 
 ## How to Use
 
-1. Open `sand_dunes.html` in a modern web browser (Chrome, Firefox, Edge, or Safari)
+The app uses ES modules and an import map, so it must be served over HTTP (opening the file directly via `file://` will not work).
+
+```bash
+# From the repository root
+python3 -m http.server 8000
+# then open http://localhost:8000/sand_dunes.html
+```
+
+In a Cursor Cloud Agent this server starts automatically (see `.cursor/environment.json`).
+
+1. Open `http://localhost:8000/sand_dunes.html` in a modern browser (Chrome, Firefox, Edge, or Safari)
 2. Click anywhere to lock the pointer and start exploring
-3. Use the controls to navigate:
+3. Use the controls below to navigate, and the top-right panel to tweak the scene
 
 ### Controls
 
 - **WASD** - Move around
 - **Mouse** - Look around
 - **Space** - Toggle between Walk and Fly modes
-- **Shift** - Move faster
+- **Shift** - Sprint (move faster)
 - **Q** - Move up (Fly mode only)
 - **E** - Move down (Fly mode only)
+- **R** - Regenerate a new dune landscape
 - **Esc** - Release pointer lock
+
+### Control panel (top-right)
+
+- **Time of day** — sun elevation, sun azimuth, and exposure
+- **Wind & sand** — wind direction and strength (reshapes dunes on regenerate, drives ripples and waves)
+- **Scene** — toggle the ocean, wireframe, and regenerate the dunes
+- **Navigation** — switch Walk/Fly and adjust move speed
 
 ## Technical Details
 
-- **Terrain Size**: 3000x3000 units
-- **Ocean Size**: 6000x6000 units
-- **Terrain Resolution**: 300x300 segments
-- **Height Range**: 0-300+ units
-- **Built with**: Three.js r160
+- **Terrain Size**: 3000x3000 units, 384x384 segments
+- **Ocean**: 30000x30000 reflective water plane at sea level (y=0)
+- **Height Range**: roughly 0-300 units, tapering below sea level at the coast
+- **Noise**: `ImprovedNoise` (Perlin) with FBM, domain warping, and ridged multifractal crests
+- **Rendering**: ACES filmic tone mapping, PCF soft shadows, PMREM sky environment
+- **Built with**: Three.js r160 (`Sky`, `Water`, `ImprovedNoise`, `lil-gui` add-ons via CDN)
 
-## Features Overview
+## How It Works
 
-### Terrain Generation
-- Multi-octave noise for natural variation
-- Dramatic dune formations with multiple wave patterns
-- Sharp ridges for towering peaks
-- Mega-dunes for large-scale landscape features
-- Coastal gradient that tapers dunes to beach level at edges
+### Terrain generation
+- Multi-octave Perlin FBM for the rolling base terrain
+- Domain warping to break up regularity and add organic shapes
+- Ridged multifractal noise sampled in wind-aligned coordinates to form long dune crests that run across the wind
+- Circular coastal gradient that lowers the terrain below sea level toward the edges
 
-### Coastal Environment
-- Sea level at y=0
-- Animated ocean with multi-directional wave motion
-- Coastal fog with blue-grey haze
-- Semi-transparent water with metallic reflections
+### Sand shading
+- Per-vertex colors blended from wet sand, beach, dry sand, bright crest, and shadowed lee tones based on height and slope
+- A procedurally generated ripple normal map, rotated to match the wind direction
 
-### Navigation
-- Fly mode: Free 3D movement
-- Walk mode: Automatically follows terrain surface
-- Boundary checking to keep player within terrain area
-- Real-time position debug display
+### Sky, sun & water
+- `Sky` provides atmospheric scattering; the sun vector drives the directional light, water sun direction, fog color, and environment map
+- `Water` renders live reflections with animated normals whose distortion scales with wind strength
 
 ## Development
 
-This project was created with assistance from Claude (Anthropic). See `CHAT_HISTORY.md` for the full development conversation and Claude state that can be used to resume development.
+This project is a single self-contained file (`sand_dunes.html`) that loads Three.js and its add-ons from a CDN. See `CHAT_HISTORY.md` for the original development conversation.
 
 ## License
 
