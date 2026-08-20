@@ -3,68 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Sand Dunes Explorer</title>
+    <title>Coastal Sand Dunes Explorer</title>
     <style>
+        :root {
+            --panel-bg: rgba(18, 22, 28, 0.72);
+            --panel-border: rgba(255, 255, 255, 0.12);
+        }
+        * { box-sizing: border-box; }
         body {
             margin: 0;
             overflow: hidden;
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            color: #f2f5f8;
+            background: #0b0f14;
         }
-        #canvas-container {
-            width: 100vw;
-            height: 100vh;
-        }
-        #controls-info {
+        #canvas-container { width: 100vw; height: 100vh; }
+
+        .panel {
             position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            font-size: 14px;
-            line-height: 1.6;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            color: #eaf1f7;
+            padding: 14px 16px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.55;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+            user-select: none;
         }
+        #controls-info { top: 18px; left: 18px; max-width: 250px; }
+        #controls-info h1 {
+            margin: 0 0 8px;
+            font-size: 15px;
+            letter-spacing: 0.02em;
+            font-weight: 700;
+        }
+        #controls-info kbd {
+            display: inline-block;
+            min-width: 18px;
+            text-align: center;
+            padding: 1px 6px;
+            margin-right: 4px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            font-size: 11px;
+        }
+        #controls-info .row { white-space: nowrap; }
+        #controls-info .hint { margin-top: 8px; opacity: 0.7; font-size: 11px; white-space: normal; }
+
         #mode-indicator {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 5px;
-            font-size: 16px;
-            font-weight: bold;
+            top: 18px;
+            right: 18px;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            padding: 10px 16px;
         }
+        #mode-indicator .dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #5ec6ff;
+            margin-right: 8px;
+            vertical-align: middle;
+            box-shadow: 0 0 8px #5ec6ff;
+        }
+
         #debug-info {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
+            bottom: 18px;
+            right: 18px;
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
             font-size: 12px;
-            font-family: monospace;
+            min-width: 118px;
         }
+        #debug-info .k { opacity: 0.6; }
+
+        #click-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(ellipse at center, rgba(0,0,0,0.15), rgba(0,0,0,0.55));
+            transition: opacity 0.4s ease;
+            cursor: pointer;
+            z-index: 5;
+        }
+        #click-overlay.hidden { opacity: 0; pointer-events: none; }
+        #click-overlay .card {
+            text-align: center;
+            padding: 26px 34px;
+            border-radius: 16px;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+        }
+        #click-overlay .card h2 { margin: 0 0 6px; font-size: 22px; }
+        #click-overlay .card p { margin: 0; opacity: 0.8; font-size: 14px; }
+        #click-overlay .card .big { margin-top: 14px; font-size: 13px; opacity: 0.9; }
+
+        #loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #0b0f14;
+            z-index: 10;
+            font-size: 15px;
+            letter-spacing: 0.06em;
+            color: #9fb3c8;
+        }
+        #loading.hidden { display: none; }
+
+        /* lil-gui tweaks */
+        .lil-gui { --background-color: var(--panel-bg); --widget-height: 24px; z-index: 6; }
+        .lil-gui.root { top: 18px; right: 18px; margin-top: 58px; }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
-    <div id="controls-info">
-        <strong>Controls:</strong><br>
-        WASD - Move<br>
-        Mouse - Look around<br>
-        Space - Toggle Walk/Fly mode<br>
-        Shift - Move faster<br>
-        Q - Up / E - Down (Fly mode)<br>
-        Click to lock pointer
+
+    <div id="loading">Generating coastal dunes&hellip;</div>
+
+    <div id="controls-info" class="panel">
+        <h1>Coastal Dunes Explorer</h1>
+        <div class="row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</div>
+        <div class="row"><kbd>Mouse</kbd> Look around</div>
+        <div class="row"><kbd>Space</kbd> Walk / Fly toggle</div>
+        <div class="row"><kbd>Shift</kbd> Sprint</div>
+        <div class="row"><kbd>Q</kbd><kbd>E</kbd> Up / Down (fly)</div>
+        <div class="row"><kbd>R</kbd> New dunes</div>
+        <div class="hint">Use the panel (top-right) to change the time of day, wind, and terrain.</div>
     </div>
-    <div id="mode-indicator">Fly Mode</div>
-    <div id="debug-info">
-        X: 0.0<br>
-        Y: 250.0<br>
-        Z: 0.0
+
+    <div id="mode-indicator" class="panel"><span class="dot"></span><span id="mode-text">Fly Mode</span></div>
+
+    <div id="debug-info" class="panel">
+        <div><span class="k">X</span> <span id="dbg-x">0.0</span></div>
+        <div><span class="k">Y</span> <span id="dbg-y">0.0</span></div>
+        <div><span class="k">Z</span> <span id="dbg-z">0.0</span></div>
+        <div><span class="k">FPS</span> <span id="dbg-fps">0</span></div>
+    </div>
+
+    <div id="click-overlay">
+        <div class="card">
+            <h2>Coastal Sand Dunes</h2>
+            <p>An interactive, procedurally generated dune landscape.</p>
+            <div class="big">Click to enter &middot; move with <b>WASD</b> &middot; look with the <b>mouse</b></div>
+        </div>
     </div>
 
     <script type="importmap">
@@ -79,303 +170,453 @@
     <script type="module">
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+        import { Sky } from 'three/addons/objects/Sky.js';
+        import { Water } from 'three/addons/objects/Water.js';
+        import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
-        // Scene setup
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87ceeb);
-        scene.fog = new THREE.Fog(0xb8d4e6, 300, 1500);
+        // Water normals texture is not shipped in the npm build; use the jsDelivr GitHub mirror.
+        const WATER_NORMALS_URL =
+            'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/waternormals.jpg';
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
-        camera.position.set(0, 250, 0);
+        // ---- World constants -------------------------------------------------
+        const TERRAIN_SIZE = 3000;
+        const HALF = TERRAIN_SIZE / 2;
+        const SEGMENTS = 384;
+        const MAX_HEIGHT = 300;
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        // ---- Renderer --------------------------------------------------------
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 0.55;
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-        // Lighting
-        const sunLight = new THREE.DirectionalLight(0xfff5e6, 1.5);
-        sunLight.position.set(100, 100, 50);
+        // ---- Scene & camera --------------------------------------------------
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0xbcd4e6, 0.0001);
+
+        const camera = new THREE.PerspectiveCamera(
+            70, window.innerWidth / window.innerHeight, 1, 60000
+        );
+        camera.position.set(0, 300, 950);
+        camera.lookAt(0, 120, 0);
+
+        // Scene used only for baking the environment map from the sky.
+        const envScene = new THREE.Scene();
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        let envRenderTarget = null;
+
+        // ---- Sky & sun -------------------------------------------------------
+        const sky = new Sky();
+        sky.scale.setScalar(20000);
+        scene.add(sky);
+        {
+            const u = sky.material.uniforms;
+            u['turbidity'].value = 4;
+            u['rayleigh'].value = 2.6;
+            u['mieCoefficient'].value = 0.004;
+            u['mieDirectionalG'].value = 0.85;
+        }
+        const sun = new THREE.Vector3();
+
+        // ---- Lighting --------------------------------------------------------
+        const sunLight = new THREE.DirectionalLight(0xffffff, 3.0);
         sunLight.castShadow = true;
-        sunLight.shadow.camera.left = -800;
-        sunLight.shadow.camera.right = 800;
-        sunLight.shadow.camera.top = 800;
-        sunLight.shadow.camera.bottom = -800;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.mapSize.set(2048, 2048);
+        sunLight.shadow.camera.near = 100;
+        sunLight.shadow.camera.far = 6000;
+        sunLight.shadow.camera.left = -HALF;
+        sunLight.shadow.camera.right = HALF;
+        sunLight.shadow.camera.top = HALF;
+        sunLight.shadow.camera.bottom = -HALF;
+        sunLight.shadow.bias = -0.0003;
         scene.add(sunLight);
+        scene.add(sunLight.target);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-        scene.add(ambientLight);
+        const hemiLight = new THREE.HemisphereLight(0xbfd8ff, 0xc79a63, 0.25);
+        scene.add(hemiLight);
 
-        const hemisphereLight = new THREE.HemisphereLight(0x87ceeb, 0xd4a574, 0.6);
-        scene.add(hemisphereLight);
+        // ---- Procedural noise ------------------------------------------------
+        const perlin = new ImprovedNoise();
+        let seed = Math.random() * 1000;
 
-        // Improved noise function
-        function noise(x, y, seed = 0) {
-            const n = Math.sin(x * 0.1 + seed) * Math.cos(y * 0.1 + seed) *
-                      Math.sin((x + y) * 0.05 + seed * 2);
-            return n * 0.5 + 0.5;
-        }
-
-        // Multi-octave noise for natural terrain
-        function multiOctaveNoise(x, y) {
-            let value = 0;
-            let amplitude = 1;
-            let frequency = 1;
-            const octaves = 8;
-
+        function fbm(x, y, octaves, lacunarity, gain, freq) {
+            let amp = 1, f = freq, sum = 0, norm = 0;
             for (let i = 0; i < octaves; i++) {
-                value += noise(x * frequency * 0.008, y * frequency * 0.008, i * 100) * amplitude;
-                amplitude *= 0.55;
-                frequency *= 2.2;
+                sum += amp * perlin.noise(x * f, y * f, seed + i * 13.73);
+                norm += amp;
+                amp *= gain;
+                f *= lacunarity;
             }
-
-            return value;
+            return sum / norm; // ~[-1, 1]
         }
 
-        // Procedural terrain generation
-        function generateTerrain(width, depth, segments) {
-            const geometry = new THREE.PlaneGeometry(width, depth, segments, segments);
-            const vertices = geometry.attributes.position.array;
-
-            // Apply height based on noise
-            for (let i = 0; i < vertices.length; i += 3) {
-                const x = vertices[i];
-                const y = vertices[i + 1];
-
-                // Calculate distance from center for coastal gradient
-                const distFromCenter = Math.sqrt(x * x + y * y);
-                const maxDist = width / 2;
-                const coastalFactor = Math.max(0, 1 - Math.pow(distFromCenter / (maxDist * 0.85), 3));
-
-                let height = multiOctaveNoise(x, y);
-
-                // Create extremely dramatic dune formations
-                const dunePattern =
-                    Math.sin(x * 0.015 + y * 0.008) * 60 +
-                    Math.sin(x * 0.01 - y * 0.012) * 50 +
-                    Math.sin(x * 0.006 + y * 0.006) * 40;
-
-                // Add massive sharp ridges for towering peaks
-                const ridgePattern = Math.abs(Math.sin(x * 0.02)) *
-                                   Math.abs(Math.cos(y * 0.015)) * 80;
-
-                // Add extra large-scale formations
-                const megaDunes = Math.sin(x * 0.005) * Math.cos(y * 0.004) * 100;
-
-                // Combine patterns for extreme variation
-                height = height * 80 + dunePattern + ridgePattern + megaDunes;
-
-                // Add fine detail
-                const detail = noise(x * 0.5, y * 0.5, 999) * 3;
-                height += detail;
-
-                // Apply coastal gradient - dunes taper down to beach level near edges
-                height = height * coastalFactor + (1 - coastalFactor) * 2;
-
-                vertices[i + 2] = height;
+        function ridged(x, y, octaves, lacunarity, gain, freq) {
+            let amp = 1, f = freq, sum = 0, norm = 0;
+            for (let i = 0; i < octaves; i++) {
+                let n = 1 - Math.abs(perlin.noise(x * f, y * f, seed + 100 + i * 7.31));
+                n *= n;
+                sum += amp * n;
+                norm += amp;
+                amp *= gain;
+                f *= lacunarity;
             }
-
-            geometry.computeVertexNormals();
-            geometry.rotateX(-Math.PI / 2);
-
-            return geometry;
+            return sum / norm; // ~[0, 1]
         }
 
-        // Create large sand dune terrain (3000x3000 units, 300 segments)
-        const terrainGeometry = generateTerrain(3000, 3000, 300);
+        // Height field in planar (x, y) coordinates. Wind direction elongates dunes.
+        let windRad = THREE.MathUtils.degToRad(45);
+        function terrainHeight(x, y) {
+            const cw = Math.cos(windRad), sw = Math.sin(windRad);
 
-        // Sand material with realistic colors
+            // Domain warp for organic, non-repeating shapes.
+            const wx = x + fbm(x, y, 3, 2.0, 0.5, 0.0009) * 220;
+            const wy = y + fbm(x + 1000, y - 1000, 3, 2.0, 0.5, 0.0009) * 220;
+
+            // Large rolling base terrain.
+            const base = (fbm(wx, wy, 5, 2.0, 0.5, 0.00045) * 0.5 + 0.5);
+
+            // Wind-aligned coordinates: dune crests run across the wind.
+            const u = wx * cw + wy * sw;   // along wind
+            const v = -wx * sw + wy * cw;  // across wind
+            const dunes = ridged(u * 0.0018, v * 0.0006, 4, 2.1, 0.55, 1.0);
+
+            // Fine surface detail.
+            const detail = (fbm(wx, wy, 4, 2.3, 0.5, 0.0042) * 0.5 + 0.5);
+
+            let h = base * 95 + dunes * 185 + detail * 22;
+
+            // Circular coastal taper: dunes fall to (and below) sea level at edges.
+            const dist = Math.sqrt(x * x + y * y);
+            const maxD = HALF * 0.92;
+            const coast = THREE.MathUtils.clamp(1 - Math.pow(dist / maxD, 3), 0, 1);
+            h = h * coast + (coast - 1) * 10; // negative near edges => submerged
+
+            return h;
+        }
+
+        // ---- Terrain colouring ----------------------------------------------
+        const C_WET = new THREE.Color(0x7a5a34);
+        const C_BEACH = new THREE.Color(0xceaa6f);
+        const C_SAND = new THREE.Color(0xddb163);
+        const C_CREST = new THREE.Color(0xf3dd9e);
+        const C_LEE = new THREE.Color(0x9c6f3c);
+
+        function applyVertexColors(geometry) {
+            const pos = geometry.attributes.position;
+            const nrm = geometry.attributes.normal;
+            const count = pos.count;
+            const colors = new Float32Array(count * 3);
+            const c = new THREE.Color();
+            for (let i = 0; i < count; i++) {
+                const h = pos.getY(i);
+                const slope = THREE.MathUtils.clamp(1 - nrm.getY(i), 0, 1);
+
+                // Base colour rises from sand to bright crest with height.
+                const t = THREE.MathUtils.smoothstep(h, 40, 220);
+                c.copy(C_SAND).lerp(C_CREST, t);
+
+                // Beach and wet sand near the waterline.
+                if (h < 14) c.lerp(C_BEACH, THREE.MathUtils.clamp((14 - h) / 18, 0, 1) * 0.65);
+                if (h < 3) c.lerp(C_WET, THREE.MathUtils.clamp((3 - h) / 7, 0, 1));
+
+                // Steep lee faces are darker / more shadowed.
+                c.lerp(C_LEE, slope * 0.7);
+
+                // Subtle grain variation.
+                const g = 0.93 + Math.random() * 0.14;
+                colors[i * 3] = c.r * g;
+                colors[i * 3 + 1] = c.g * g;
+                colors[i * 3 + 2] = c.b * g;
+            }
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        }
+
+        function buildTerrainGeometry() {
+            const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, SEGMENTS, SEGMENTS);
+            const pos = geo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                pos.setZ(i, terrainHeight(pos.getX(i), pos.getY(i)));
+            }
+            geo.rotateX(-Math.PI / 2); // lay flat: +Y is up, height = position.y
+            geo.computeVertexNormals();
+            applyVertexColors(geo);
+            return geo;
+        }
+
+        // ---- Procedural sand ripple normal map ------------------------------
+        function makeSandNormalTexture(size = 256) {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const img = ctx.createImageData(size, size);
+
+            // Build a tiling height field of wind ripples plus jitter.
+            const H = new Float32Array(size * size);
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const wave = Math.sin((x / size) * Math.PI * 2 * 9 +
+                        Math.sin((y / size) * Math.PI * 2 * 3) * 1.4);
+                    let v = Math.pow(wave * 0.5 + 0.5, 1.6);
+                    v += 0.12 * Math.sin((x / size) * Math.PI * 2 * 23);
+                    H[y * size + x] = v;
+                }
+            }
+
+            const strength = 2.4;
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const l = H[y * size + ((x - 1 + size) % size)];
+                    const r = H[y * size + ((x + 1) % size)];
+                    const d = H[((y - 1 + size) % size) * size + x];
+                    const u = H[((y + 1) % size) * size + x];
+                    let nx = (l - r) * strength;
+                    let ny = (d - u) * strength;
+                    let nz = 1;
+                    const len = Math.hypot(nx, ny, nz) || 1;
+                    nx /= len; ny /= len; nz /= len;
+                    const idx = (y * size + x) * 4;
+                    img.data[idx] = (nx * 0.5 + 0.5) * 255;
+                    img.data[idx + 1] = (ny * 0.5 + 0.5) * 255;
+                    img.data[idx + 2] = (nz * 0.5 + 0.5) * 255;
+                    img.data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(img, 0, 0);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(140, 140);
+            tex.center.set(0.5, 0.5);
+            tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            return tex;
+        }
+
+        const sandNormal = makeSandNormalTexture();
         const sandMaterial = new THREE.MeshStandardMaterial({
-            color: 0xd4a574,
-            roughness: 0.9,
-            metalness: 0.1,
-            flatShading: false,
+            vertexColors: true,
+            roughness: 0.96,
+            metalness: 0.0,
+            normalMap: sandNormal,
+            normalScale: new THREE.Vector2(0.35, 0.35),
+            envMapIntensity: 0.45,
             side: THREE.DoubleSide,
         });
 
-        const terrain = new THREE.Mesh(terrainGeometry, sandMaterial);
-        terrain.receiveShadow = true;
+        const terrain = new THREE.Mesh(buildTerrainGeometry(), sandMaterial);
         terrain.castShadow = true;
+        terrain.receiveShadow = true;
         scene.add(terrain);
 
-        // Add some variation with vertex colors
-        const colors = [];
-        const color1 = new THREE.Color(0xd4a574);
-        const color2 = new THREE.Color(0xc9a060);
-        const color3 = new THREE.Color(0xe5c89e);
-        const color4 = new THREE.Color(0xb8936f);
+        // ---- Water -----------------------------------------------------------
+        const waterNormals = new THREE.TextureLoader().load(WATER_NORMALS_URL, (t) => {
+            t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        });
+        const water = new Water(new THREE.PlaneGeometry(30000, 30000), {
+            textureWidth: 512,
+            textureHeight: 512,
+            waterNormals: waterNormals,
+            sunDirection: new THREE.Vector3(),
+            sunColor: 0xffffff,
+            waterColor: 0x1f4b5c,
+            distortionScale: 3.4,
+            fog: scene.fog !== undefined,
+        });
+        water.rotation.x = -Math.PI / 2;
+        water.position.y = 0.0;
+        scene.add(water);
 
-        for (let i = 0; i < terrainGeometry.attributes.position.count; i++) {
-            const mix = Math.random();
-            let color;
-            if (mix < 0.25) {
-                color = color1.clone();
-            } else if (mix < 0.5) {
-                color = color2.clone();
-            } else if (mix < 0.75) {
-                color = color3.clone();
-            } else {
-                color = color4.clone();
-            }
-            colors.push(color.r, color.g, color.b);
+        // ---- Sun / environment update ---------------------------------------
+        function updateSun() {
+            const phi = THREE.MathUtils.degToRad(90 - params.elevation);
+            const theta = THREE.MathUtils.degToRad(params.azimuth);
+            sun.setFromSphericalCoords(1, phi, theta);
+
+            sky.material.uniforms['sunPosition'].value.copy(sun);
+            water.material.uniforms['sunDirection'].value.copy(sun).normalize();
+
+            sunLight.position.copy(sun).multiplyScalar(4000);
+            sunLight.target.position.set(0, 0, 0);
+
+            const elev = THREE.MathUtils.clamp(params.elevation / 90, 0, 1);
+            const above = Math.max(0, Math.sin(THREE.MathUtils.degToRad(params.elevation)));
+            sunLight.intensity = 0.25 + above * 4.4;
+            hemiLight.intensity = 0.12 + elev * 0.3;
+
+            // Warmer light when the sun is low.
+            sunLight.color.copy(new THREE.Color(0xffb066)).lerp(new THREE.Color(0xffffff), elev);
+            scene.fog.color.copy(new THREE.Color(0xdcb98a)).lerp(new THREE.Color(0xbcd4e6), elev);
+
+            renderer.toneMappingExposure = params.exposure;
+
+            // Rebuild the environment map from the current sky.
+            if (envRenderTarget) envRenderTarget.dispose();
+            envScene.add(sky);
+            envRenderTarget = pmrem.fromScene(envScene);
+            scene.add(sky);
+            scene.environment = envRenderTarget.texture;
         }
 
-        terrainGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-        sandMaterial.vertexColors = true;
+        function updateWind() {
+            windRad = THREE.MathUtils.degToRad(params.windDir);
+            sandNormal.rotation = windRad;
+            const s = 0.15 + params.windStrength * 0.7;
+            sandMaterial.normalScale.set(s, s);
+            water.material.uniforms['distortionScale'].value = 1.5 + params.windStrength * 6.0;
+            waterWaveAmp = 0.3 + params.windStrength * 1.6;
+        }
 
-        // Ocean water with animated waves
-        const oceanGeometry = new THREE.PlaneGeometry(6000, 6000, 100, 100);
-        const oceanMaterial = new THREE.MeshStandardMaterial({
-            color: 0x1a5f7a,
-            roughness: 0.3,
-            metalness: 0.6,
-            transparent: true,
-            opacity: 0.85,
-            side: THREE.DoubleSide,
-        });
-        const ocean = new THREE.Mesh(oceanGeometry, oceanMaterial);
-        ocean.rotation.x = -Math.PI / 2;
-        ocean.position.y = 0; // Sea level
-        ocean.receiveShadow = true;
-        scene.add(ocean);
+        function regenerate() {
+            document.getElementById('loading').classList.remove('hidden');
+            // Defer so the loading overlay can paint before the heavy rebuild.
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                seed = Math.random() * 1000;
+                const geo = buildTerrainGeometry();
+                terrain.geometry.dispose();
+                terrain.geometry = geo;
+                document.getElementById('loading').classList.add('hidden');
+            }));
+        }
 
-        // Store original ocean vertices for wave animation
-        const oceanOriginalVertices = oceanGeometry.attributes.position.array.slice();
+        // ---- Controls & movement --------------------------------------------
+        const controls = new PointerLockControls(camera, renderer.domElement);
+        const overlay = document.getElementById('click-overlay');
+        const modeText = document.getElementById('mode-text');
 
-        // Sky
-        const skyGeometry = new THREE.SphereGeometry(1800, 32, 32);
-        const skyMaterial = new THREE.MeshBasicMaterial({
-            color: 0x87ceeb,
-            side: THREE.BackSide,
-        });
-        const sky = new THREE.Mesh(skyGeometry, skyMaterial);
-        scene.add(sky);
+        // The intro overlay sits above the canvas, so it must trigger the lock too.
+        overlay.addEventListener('click', () => controls.lock());
+        renderer.domElement.addEventListener('click', () => controls.lock());
+        controls.addEventListener('lock', () => overlay.classList.add('hidden'));
+        controls.addEventListener('unlock', () => overlay.classList.remove('hidden'));
 
-        // Controls
-        const controls = new PointerLockControls(camera, document.body);
-
-        document.body.addEventListener('click', () => {
-            controls.lock();
-        });
-
-        // Movement
-        const moveSpeed = 0.5;
-        const fastMoveSpeed = 1.5;
-        const velocity = new THREE.Vector3();
-        const direction = new THREE.Vector3();
         const keys = {};
-        let isFlying = true; // Start in fly mode
+        let isFlying = true;
+        let modeController; // lil-gui controller, set below
 
-        document.addEventListener('keydown', (event) => {
-            keys[event.code] = true;
+        function setMode(flying) {
+            isFlying = flying;
+            modeText.textContent = flying ? 'Fly Mode' : 'Walk Mode';
+            params.mode = flying ? 'Fly' : 'Walk';
+            if (modeController) modeController.updateDisplay();
+        }
 
-            if (event.code === 'Space') {
-                event.preventDefault();
-                isFlying = !isFlying;
-                document.getElementById('mode-indicator').textContent =
-                    isFlying ? 'Fly Mode' : 'Walk Mode';
-            }
+        document.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'Space') { e.preventDefault(); setMode(!isFlying); }
+            if (e.code === 'KeyR') { e.preventDefault(); regenerate(); }
         });
+        document.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
-        document.addEventListener('keyup', (event) => {
-            keys[event.code] = false;
-        });
-
-        // Raycaster for ground detection
         const raycaster = new THREE.Raycaster();
         raycaster.ray.direction.set(0, -1, 0);
-
         function getTerrainHeight(x, z) {
-            raycaster.ray.origin.set(x, 1000, z);
-            const intersects = raycaster.intersectObject(terrain);
-            if (intersects.length > 0) {
-                return intersects[0].point.y;
-            }
-            // If raycast fails, return current camera height to avoid dropping underground
-            return camera.position.y - 3;
+            raycaster.ray.origin.set(x, 1200, z);
+            const hit = raycaster.intersectObject(terrain);
+            return hit.length > 0 ? hit[0].point.y : camera.position.y - 6;
         }
 
-        // Animation loop
+        // ---- Interactive GUI -------------------------------------------------
+        const params = {
+            elevation: 32,
+            azimuth: 135,
+            exposure: 0.42,
+            windDir: 45,
+            windStrength: 0.5,
+            ocean: true,
+            wireframe: false,
+            mode: 'Fly',
+            speed: 1.0,
+            regenerate: regenerate,
+        };
+        let waterWaveAmp = 0.3 + params.windStrength * 1.6;
+
+        const gui = new GUI({ title: 'Explorer Controls' });
+        const fSun = gui.addFolder('Time of day');
+        fSun.add(params, 'elevation', 0.5, 85, 0.5).name('Sun elevation').onChange(updateSun);
+        fSun.add(params, 'azimuth', 0, 360, 1).name('Sun azimuth').onChange(updateSun);
+        fSun.add(params, 'exposure', 0.2, 1.1, 0.01).name('Exposure').onChange(updateSun);
+
+        const fWind = gui.addFolder('Wind & sand');
+        fWind.add(params, 'windDir', 0, 360, 1).name('Wind direction').onChange(updateWind);
+        fWind.add(params, 'windStrength', 0, 1, 0.01).name('Wind strength').onChange(updateWind);
+
+        const fScene = gui.addFolder('Scene');
+        fScene.add(params, 'ocean').name('Ocean').onChange((v) => (water.visible = v));
+        fScene.add(params, 'wireframe').name('Wireframe').onChange((v) => (sandMaterial.wireframe = v));
+        fScene.add(params, 'regenerate').name('Regenerate dunes (R)');
+
+        const fNav = gui.addFolder('Navigation');
+        modeController = fNav.add(params, 'mode', ['Fly', 'Walk']).name('Mode')
+            .onChange((v) => setMode(v === 'Fly'));
+        fNav.add(params, 'speed', 0.2, 4, 0.1).name('Move speed');
+
+        // ---- Init ------------------------------------------------------------
+        updateWind();
+        updateSun();
+        document.getElementById('loading').classList.add('hidden');
+
+        // ---- Animation loop --------------------------------------------------
+        const baseSpeed = 1.4;
+        const clock = new THREE.Clock();
+        let fpsAccum = 0, fpsFrames = 0, fpsTimer = 0;
+
         function animate() {
             requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.05);
 
-            // Animate ocean waves
-            const time = Date.now() * 0.0005;
-            const oceanVertices = oceanGeometry.attributes.position.array;
-            for (let i = 0; i < oceanVertices.length; i += 3) {
-                const x = oceanOriginalVertices[i];
-                const z = oceanOriginalVertices[i + 1];
-
-                // Create gentle wave motion
-                oceanVertices[i + 2] =
-                    Math.sin(x * 0.01 + time) * 0.8 +
-                    Math.cos(z * 0.01 + time * 1.3) * 0.6 +
-                    Math.sin((x + z) * 0.008 + time * 0.7) * 0.5;
-            }
-            oceanGeometry.attributes.position.needsUpdate = true;
-            oceanGeometry.computeVertexNormals();
+            // Animated water.
+            water.material.uniforms['time'].value += dt * (0.6 + waterWaveAmp * 0.4);
 
             if (controls.isLocked) {
-                const speed = keys['ShiftLeft'] ? fastMoveSpeed : moveSpeed;
+                const speed = (keys['ShiftLeft'] || keys['ShiftRight'] ? 3.0 : 1.0)
+                    * baseSpeed * params.speed * (dt * 60);
 
-                // Get camera direction for horizontal movement only
                 const forward = new THREE.Vector3();
                 camera.getWorldDirection(forward);
-                forward.y = 0; // Flatten to horizontal plane
+                forward.y = 0;
                 forward.normalize();
+                const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
 
-                const right = new THREE.Vector3();
-                right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
-                right.normalize();
-
-                // Calculate movement direction
-                const moveDirection = new THREE.Vector3();
-
-                if (keys['KeyW']) moveDirection.add(forward);
-                if (keys['KeyS']) moveDirection.sub(forward);
-                if (keys['KeyD']) moveDirection.add(right);
-                if (keys['KeyA']) moveDirection.sub(right);
-
-                if (moveDirection.length() > 0) {
-                    moveDirection.normalize();
-                    camera.position.x += moveDirection.x * speed;
-                    camera.position.z += moveDirection.z * speed;
+                const move = new THREE.Vector3();
+                if (keys['KeyW']) move.add(forward);
+                if (keys['KeyS']) move.sub(forward);
+                if (keys['KeyD']) move.add(right);
+                if (keys['KeyA']) move.sub(right);
+                if (move.lengthSq() > 0) {
+                    move.normalize();
+                    camera.position.x += move.x * speed;
+                    camera.position.z += move.z * speed;
                 }
 
-                // Keep camera within terrain bounds (3000x3000 terrain)
-                const maxDistance = 1490; // Slightly less than terrain size/2
-                camera.position.x = Math.max(-maxDistance, Math.min(maxDistance, camera.position.x));
-                camera.position.z = Math.max(-maxDistance, Math.min(maxDistance, camera.position.z));
+                const maxD = HALF - 40;
+                camera.position.x = THREE.MathUtils.clamp(camera.position.x, -maxD, maxD);
+                camera.position.z = THREE.MathUtils.clamp(camera.position.z, -maxD, maxD);
 
-                // Handle vertical movement based on mode
                 if (isFlying) {
-                    // Free flying
-                    if (keys['KeyQ']) {
-                        camera.position.y += speed; // Q goes up
-                    }
-                    if (keys['KeyE']) {
-                        camera.position.y -= speed; // E goes down
-                    }
+                    if (keys['KeyQ']) camera.position.y += speed;
+                    if (keys['KeyE']) camera.position.y -= speed;
+                    camera.position.y = Math.max(camera.position.y, getTerrainHeight(camera.position.x, camera.position.z) + 3);
                 } else {
-                    // Walk mode - stick to terrain
-                    const terrainHeight = getTerrainHeight(camera.position.x, camera.position.z);
-                    camera.position.y = terrainHeight + 5; // 5 units above terrain
+                    camera.position.y = getTerrainHeight(camera.position.x, camera.position.z) + 6;
                 }
             }
 
-            // Update debug info
-            document.getElementById('debug-info').innerHTML =
-                `X: ${camera.position.x.toFixed(1)}<br>` +
-                `Y: ${camera.position.y.toFixed(1)}<br>` +
-                `Z: ${camera.position.z.toFixed(1)}`;
+            // HUD
+            document.getElementById('dbg-x').textContent = camera.position.x.toFixed(1);
+            document.getElementById('dbg-y').textContent = camera.position.y.toFixed(1);
+            document.getElementById('dbg-z').textContent = camera.position.z.toFixed(1);
+            fpsTimer += dt; fpsFrames++;
+            if (fpsTimer >= 0.5) {
+                document.getElementById('dbg-fps').textContent = Math.round(fpsFrames / fpsTimer);
+                fpsTimer = 0; fpsFrames = 0;
+            }
 
             renderer.render(scene, camera);
         }
 
-        // Handle window resize
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
