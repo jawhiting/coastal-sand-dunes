@@ -123,6 +123,14 @@
         /* lil-gui tweaks */
         .lil-gui { --background-color: var(--panel-bg); --widget-height: 24px; z-index: 6; }
         .lil-gui.root { top: 18px; right: 18px; margin-top: 58px; }
+
+        /* Three.js VRButton sits above the intro overlay so Quest users can enter VR. */
+        #VRButton, a#VRButton {
+            z-index: 8 !important;
+            opacity: 0.95 !important;
+            background: rgba(18, 22, 28, 0.82) !important;
+            border-radius: 10px !important;
+        }
     </style>
 </head>
 <body>
@@ -138,7 +146,7 @@
         <div class="row"><kbd>Shift</kbd> Sprint</div>
         <div class="row"><kbd>Q</kbd><kbd>E</kbd> Up / Down (fly)</div>
         <div class="row"><kbd>R</kbd> New dunes</div>
-        <div class="hint">Use the panel (top-right) to change the time of day, wind, and terrain.</div>
+        <div class="hint">Quest / WebXR: tap <b>ENTER VR</b>, then left stick to move, right stick to turn, trigger to sprint, A/X to toggle walk/fly.</div>
     </div>
 
     <div id="mode-indicator" class="panel"><span class="dot"></span><span id="mode-text">Fly Mode</span></div>
@@ -154,7 +162,7 @@
         <div class="card">
             <h2>Coastal Sand Dunes</h2>
             <p>An interactive, procedurally generated dune landscape.</p>
-            <div class="big">Click to enter &middot; move with <b>WASD</b> &middot; look with the <b>mouse</b></div>
+            <div class="big">Desktop: click to enter &middot; <b>WASD</b> + mouse<br>Quest: tap <b>ENTER VR</b> below, then use the thumbsticks</div>
         </div>
     </div>
 
@@ -174,35 +182,49 @@
         import { Sky } from 'three/addons/objects/Sky.js';
         import { Water } from 'three/addons/objects/Water.js';
         import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+        import { VRButton } from 'three/addons/webxr/VRButton.js';
+        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 
         // Water normals texture is not shipped in the npm build; use the jsDelivr GitHub mirror.
         const WATER_NORMALS_URL =
             'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/waternormals.jpg';
 
         // ---- World constants -------------------------------------------------
+        // Quest Browser is a real WebXR client; drop mesh/shadow/water cost so stereo stays smooth.
+        const isQuestLike = /OculusBrowser|Quest|Mobile VR/i.test(navigator.userAgent);
         const TERRAIN_SIZE = 3000;
         const HALF = TERRAIN_SIZE / 2;
-        const SEGMENTS = 384;
-        const MAX_HEIGHT = 300;
+        const SEGMENTS = isQuestLike ? 192 : 384;
+        const WATER_RES = isQuestLike ? 256 : 512;
+        const SHADOW_MAP = isQuestLike ? 1024 : 2048;
+        const EYE_HEIGHT = 6;
 
         // ---- Renderer --------------------------------------------------------
-        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        const renderer = new THREE.WebGLRenderer({ antialias: !isQuestLike, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, isQuestLike ? 1 : 2));
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.enabled = !isQuestLike;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.toneMappingExposure = 0.55;
+        renderer.xr.enabled = true;
+        if (isQuestLike) renderer.xr.setFramebufferScaleFactor(0.85);
         document.getElementById('canvas-container').appendChild(renderer.domElement);
+        document.body.appendChild(VRButton.createButton(renderer));
 
         // ---- Scene & camera --------------------------------------------------
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0xbcd4e6, 0.0001);
 
         const camera = new THREE.PerspectiveCamera(
-            70, window.innerWidth / window.innerHeight, 1, 60000
+            70, window.innerWidth / window.innerHeight, 0.1, 60000
         );
-        camera.position.set(0, 300, 950);
+        // Player rig: desktop look stays on the camera; locomotion and WebXR tracking
+        // both apply to this group so the headset pose is not overwritten.
+        const player = new THREE.Group();
+        player.position.set(0, 300, 950);
+        scene.add(player);
+        player.add(camera);
         camera.lookAt(0, 120, 0);
 
         // Scene used only for baking the environment map from the sky.
@@ -225,8 +247,8 @@
 
         // ---- Lighting --------------------------------------------------------
         const sunLight = new THREE.DirectionalLight(0xffffff, 3.0);
-        sunLight.castShadow = true;
-        sunLight.shadow.mapSize.set(2048, 2048);
+        sunLight.castShadow = !isQuestLike;
+        sunLight.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
         sunLight.shadow.camera.near = 100;
         sunLight.shadow.camera.far = 6000;
         sunLight.shadow.camera.left = -HALF;
@@ -416,8 +438,8 @@
             t.wrapS = t.wrapT = THREE.RepeatWrapping;
         });
         const water = new Water(new THREE.PlaneGeometry(30000, 30000), {
-            textureWidth: 512,
-            textureHeight: 512,
+            textureWidth: WATER_RES,
+            textureHeight: WATER_RES,
             waterNormals: waterNormals,
             sunDirection: new THREE.Vector3(),
             sunColor: 0xffffff,
@@ -428,6 +450,101 @@
         water.rotation.x = -Math.PI / 2;
         water.position.y = 0.0;
         scene.add(water);
+
+        // ---- WebXR controllers (Quest Touch / Touch Plus) -------------------
+        const controllerModelFactory = new XRControllerModelFactory();
+        const xrControllers = [0, 1].map((i) => {
+            const target = renderer.xr.getController(i);
+            const grip = renderer.xr.getControllerGrip(i);
+            grip.add(controllerModelFactory.createControllerModel(grip));
+            player.add(target);
+            player.add(grip);
+            return { target, grip };
+        });
+
+        let xrActive = false;
+        let snapTurnReady = true;
+        let xrToggleHeld = false;
+        renderer.xr.addEventListener('sessionstart', () => {
+            xrActive = true;
+            overlay.classList.add('hidden');
+            if (controls.isLocked) controls.unlock();
+            camera.rotation.set(0, 0, 0);
+            applyXrQuality(true);
+        });
+        renderer.xr.addEventListener('sessionend', () => {
+            xrActive = false;
+            camera.position.set(0, 0, 0);
+            camera.rotation.set(0, 0, 0);
+            applyXrQuality(false);
+            overlay.classList.remove('hidden');
+        });
+
+        function applyXrQuality(on) {
+            if (isQuestLike) return;
+            renderer.shadowMap.enabled = !on;
+            sunLight.castShadow = !on;
+        }
+
+        function readThumbstick(gamepad) {
+            if (!gamepad || !gamepad.axes) return { x: 0, y: 0 };
+            const axes = gamepad.axes;
+            // xr-standard: axes 2/3 are the thumbstick; fallback to 0/1.
+            const x = axes.length >= 4 ? axes[2] : (axes[0] || 0);
+            const y = axes.length >= 4 ? axes[3] : (axes[1] || 0);
+            return { x, y };
+        }
+
+        function applyXrLocomotion(dt) {
+            const session = renderer.xr.getSession();
+            if (!session) return;
+
+            const move = new THREE.Vector3();
+            let climb = 0;
+            let sprint = false;
+            let togglePressed = false;
+
+            for (const source of session.inputSources) {
+                const pad = source.gamepad;
+                if (!pad) continue;
+                const stick = readThumbstick(pad);
+                const dead = 0.18;
+                const sx = Math.abs(stick.x) > dead ? stick.x : 0;
+                const sy = Math.abs(stick.y) > dead ? stick.y : 0;
+
+                if (source.handedness === 'right') {
+                    if (snapTurnReady && Math.abs(sx) > 0.7) {
+                        player.rotation.y -= Math.sign(sx) * THREE.MathUtils.degToRad(30);
+                        snapTurnReady = false;
+                    }
+                    if (Math.abs(sx) < 0.4) snapTurnReady = true;
+                    if (isFlying) climb += -sy;
+                } else {
+                    // Left stick (or unhanded): walk in the look direction.
+                    move.x += sx;
+                    move.z += sy;
+                }
+
+                // Trigger = sprint; A/X (xr-standard button 4) = walk/fly toggle.
+                if (pad.buttons[0] && pad.buttons[0].pressed) sprint = true;
+                if (pad.buttons[4] && pad.buttons[4].pressed) togglePressed = true;
+            }
+            if (togglePressed && !xrToggleHeld) setMode(!isFlying);
+            xrToggleHeld = togglePressed;
+
+            const speed = (sprint ? 3.0 : 1.0) * baseSpeed * params.speed * (dt * 60);
+            if (move.lengthSq() > 0) {
+                const forward = new THREE.Vector3();
+                camera.getWorldDirection(forward);
+                forward.y = 0;
+                if (forward.lengthSq() > 0) forward.normalize();
+                const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+                // Thumbstick Y is typically inverted (forward is negative).
+                player.position.addScaledVector(right, move.x * speed);
+                player.position.addScaledVector(forward, -move.z * speed);
+            }
+            if (isFlying && climb) player.position.y += climb * speed;
+        }
 
         // ---- Sun / environment update ---------------------------------------
         function updateSun() {
@@ -515,7 +632,19 @@
         function getTerrainHeight(x, z) {
             raycaster.ray.origin.set(x, 1200, z);
             const hit = raycaster.intersectObject(terrain);
-            return hit.length > 0 ? hit[0].point.y : camera.position.y - 6;
+            return hit.length > 0 ? hit[0].point.y : player.position.y - 6;
+        }
+
+        function constrainPlayer() {
+            const maxD = HALF - 40;
+            player.position.x = THREE.MathUtils.clamp(player.position.x, -maxD, maxD);
+            player.position.z = THREE.MathUtils.clamp(player.position.z, -maxD, maxD);
+            const ground = getTerrainHeight(player.position.x, player.position.z);
+            if (isFlying) {
+                player.position.y = Math.max(player.position.y, ground + (xrActive ? 0.2 : 3));
+            } else {
+                player.position.y = ground + (xrActive ? 0.2 : EYE_HEIGHT);
+            }
         }
 
         // ---- Interactive GUI -------------------------------------------------
@@ -564,13 +693,15 @@
         let fpsAccum = 0, fpsFrames = 0, fpsTimer = 0;
 
         function animate() {
-            requestAnimationFrame(animate);
             const dt = Math.min(clock.getDelta(), 0.05);
 
             // Animated water.
             water.material.uniforms['time'].value += dt * (0.6 + waterWaveAmp * 0.4);
 
-            if (controls.isLocked) {
+            if (xrActive) {
+                applyXrLocomotion(dt);
+                constrainPlayer();
+            } else if (controls.isLocked) {
                 const speed = (keys['ShiftLeft'] || keys['ShiftRight'] ? 3.0 : 1.0)
                     * baseSpeed * params.speed * (dt * 60);
 
@@ -587,27 +718,23 @@
                 if (keys['KeyA']) move.sub(right);
                 if (move.lengthSq() > 0) {
                     move.normalize();
-                    camera.position.x += move.x * speed;
-                    camera.position.z += move.z * speed;
+                    player.position.x += move.x * speed;
+                    player.position.z += move.z * speed;
                 }
-
-                const maxD = HALF - 40;
-                camera.position.x = THREE.MathUtils.clamp(camera.position.x, -maxD, maxD);
-                camera.position.z = THREE.MathUtils.clamp(camera.position.z, -maxD, maxD);
 
                 if (isFlying) {
-                    if (keys['KeyQ']) camera.position.y += speed;
-                    if (keys['KeyE']) camera.position.y -= speed;
-                    camera.position.y = Math.max(camera.position.y, getTerrainHeight(camera.position.x, camera.position.z) + 3);
-                } else {
-                    camera.position.y = getTerrainHeight(camera.position.x, camera.position.z) + 6;
+                    if (keys['KeyQ']) player.position.y += speed;
+                    if (keys['KeyE']) player.position.y -= speed;
                 }
+                constrainPlayer();
             }
 
-            // HUD
-            document.getElementById('dbg-x').textContent = camera.position.x.toFixed(1);
-            document.getElementById('dbg-y').textContent = camera.position.y.toFixed(1);
-            document.getElementById('dbg-z').textContent = camera.position.z.toFixed(1);
+            // HUD — world pose (headset offset in VR, camera origin on desktop).
+            const worldPos = new THREE.Vector3();
+            camera.getWorldPosition(worldPos);
+            document.getElementById('dbg-x').textContent = worldPos.x.toFixed(1);
+            document.getElementById('dbg-y').textContent = worldPos.y.toFixed(1);
+            document.getElementById('dbg-z').textContent = worldPos.z.toFixed(1);
             fpsTimer += dt; fpsFrames++;
             if (fpsTimer >= 0.5) {
                 document.getElementById('dbg-fps').textContent = Math.round(fpsFrames / fpsTimer);
@@ -623,7 +750,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        animate();
+        renderer.setAnimationLoop(animate);
     </script>
 </body>
 </html>

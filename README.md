@@ -28,8 +28,8 @@ python3 -m http.server 8000
 
 In a Cursor Cloud Agent this server starts automatically (see `.cursor/environment.json`).
 
-1. Open `http://localhost:8000/sand_dunes.html` in a modern browser (Chrome, Firefox, Edge, or Safari)
-2. Click anywhere to lock the pointer and start exploring
+1. Open `http://localhost:8000/sand_dunes.html` in a modern browser (Chrome, Firefox, Edge, Safari, or the Meta Quest Browser)
+2. Click anywhere to lock the pointer and start exploring, or tap **ENTER VR** on a headset
 3. Use the controls below to navigate, and the top-right panel to tweak the scene
 
 ### Controls
@@ -42,6 +42,24 @@ In a Cursor Cloud Agent this server starts automatically (see `.cursor/environme
 - **E** - Move down (Fly mode only)
 - **R** - Regenerate a new dune landscape
 - **Esc** - Release pointer lock
+
+### Meta Quest / WebXR
+
+Quest Browser (and other WebXR headsets) can enter true stereoscopic VR. This uses the current **WebXR** standard — the older WebVR API is retired and is not needed.
+
+1. Open the page over **HTTPS** (GitHub Pages) or localhost. WebXR will not start on plain `http://` LAN IPs.
+2. Tap **ENTER VR** at the bottom of the page (the Quest Browser will ask to start an immersive session).
+3. Look around by turning your head. Controllers are shown in-world.
+
+| Control | Action |
+| --- | --- |
+| Left thumbstick | Move |
+| Right thumbstick left/right | Snap-turn 30° |
+| Right thumbstick up/down | Fly up/down (Fly mode) |
+| Trigger | Sprint |
+| A / X | Toggle Walk / Fly |
+
+Walk mode follows the dune surface; Fly mode is free 3D movement. Shadows and mesh density are reduced automatically on Quest so stereo rendering stays smoother.
 
 ### Control panel (top-right)
 
