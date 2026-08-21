@@ -92,7 +92,9 @@
             transition: opacity 0.4s ease;
             cursor: pointer;
             z-index: 5;
+            pointer-events: none;
         }
+        #click-overlay .card { pointer-events: auto; }
         #click-overlay.hidden { opacity: 0; pointer-events: none; }
         #click-overlay .card {
             text-align: center;
@@ -121,8 +123,8 @@
         #loading.hidden { display: none; }
 
         /* lil-gui tweaks */
-        .lil-gui { --background-color: var(--panel-bg); --widget-height: 24px; z-index: 6; }
-        .lil-gui.root { top: 18px; right: 18px; margin-top: 58px; }
+        .lil-gui { --background-color: var(--panel-bg); --widget-height: 24px; z-index: 30; }
+        .lil-gui.root { top: 18px; right: 18px; margin-top: 58px; z-index: 30; }
 
         /* Three.js VRButton sits above the intro overlay so Quest users can enter VR. */
         #VRButton, a#VRButton {
@@ -131,10 +133,26 @@
             background: rgba(18, 22, 28, 0.82) !important;
             border-radius: 10px !important;
         }
+        #crosshair {
+            display: none;
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 14px;
+            height: 14px;
+            margin: -7px 0 0 -7px;
+            border: 2px solid rgba(244, 214, 150, 0.85);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 4;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+        }
+        #crosshair.on { display: block; }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
+    <div id="crosshair"></div>
 
     <div id="loading">Generating coastal dunes&hellip;</div>
 
@@ -146,7 +164,9 @@
         <div class="row"><kbd>Shift</kbd> Sprint</div>
         <div class="row"><kbd>Q</kbd><kbd>E</kbd> Up / Down (fly)</div>
         <div class="row"><kbd>R</kbd> New dunes</div>
-        <div class="hint">Quest / WebXR: tap <b>ENTER VR</b>, then left stick to move, right stick to turn, trigger to sprint, A/X to toggle walk/fly.</div>
+        <div class="row"><kbd>F</kbd> / <kbd>LMB</kbd> Sand gun (build)</div>
+        <div class="row"><kbd>G</kbd> / <kbd>RMB</kbd> Dig sand</div>
+        <div class="hint">Quest: tap <b>ENTER VR</b>. Left stick move, right stick turn, <b>trigger</b> sand gun, grip sprint, A/X walk/fly.</div>
     </div>
 
     <div id="mode-indicator" class="panel"><span class="dot"></span><span id="mode-text">Fly Mode</span></div>
@@ -156,13 +176,14 @@
         <div><span class="k">Y</span> <span id="dbg-y">0.0</span></div>
         <div><span class="k">Z</span> <span id="dbg-z">0.0</span></div>
         <div><span class="k">FPS</span> <span id="dbg-fps">0</span></div>
+        <div><span class="k">SAND</span> <span id="dbg-sand">0.0</span></div>
     </div>
 
     <div id="click-overlay">
         <div class="card">
             <h2>Coastal Sand Dunes</h2>
             <p>An interactive, procedurally generated dune landscape.</p>
-            <div class="big">Desktop: click to enter &middot; <b>WASD</b> + mouse<br>Quest: tap <b>ENTER VR</b> below, then use the thumbsticks</div>
+            <div class="big">Desktop: click to enter &middot; <b>WASD</b> + mouse &middot; hold <b>F</b> to spray sand<br>Quest: tap <b>ENTER VR</b>, then hold the trigger to build dunes</div>
         </div>
     </div>
 
@@ -433,6 +454,102 @@
         terrain.receiveShadow = true;
         scene.add(terrain);
 
+        // ---- Mutable height field (sand sculpting) --------------------------
+        const GRID = SEGMENTS + 1;
+        const CELL = TERRAIN_SIZE / SEGMENTS;
+        const MAX_SCULPT_HEIGHT = 460;
+        const MIN_SCULPT_HEIGHT = -12;
+
+        function terrainPos() { return terrain.geometry.attributes.position; }
+        function terrainNrm() { return terrain.geometry.attributes.normal; }
+        function terrainCol() { return terrain.geometry.attributes.color; }
+        function vertIndex(ix, iy) { return iy * GRID + ix; }
+
+        function colorFromHeight(h, slope, out) {
+            const t = THREE.MathUtils.smoothstep(h, 40, 220);
+            out.copy(C_SAND).lerp(C_CREST, t);
+            if (h < 14) out.lerp(C_BEACH, THREE.MathUtils.clamp((14 - h) / 18, 0, 1) * 0.65);
+            if (h < 3) out.lerp(C_WET, THREE.MathUtils.clamp((3 - h) / 7, 0, 1));
+            out.lerp(C_LEE, slope * 0.7);
+            const g = 0.93 + Math.random() * 0.08;
+            out.r *= g; out.g *= g; out.b *= g;
+            return out;
+        }
+
+        function sampleHeight(wx, wz) {
+            const fx = (wx + HALF) / CELL;
+            const fz = (wz + HALF) / CELL;
+            if (fx < 0 || fz < 0 || fx > SEGMENTS || fz > SEGMENTS) return -20;
+            const ix = Math.min(SEGMENTS - 1, Math.max(0, Math.floor(fx)));
+            const iz = Math.min(SEGMENTS - 1, Math.max(0, Math.floor(fz)));
+            const tx = THREE.MathUtils.clamp(fx - ix, 0, 1);
+            const tz = THREE.MathUtils.clamp(fz - iz, 0, 1);
+            const pos = terrainPos();
+            const h00 = pos.getY(vertIndex(ix, iz));
+            const h10 = pos.getY(vertIndex(ix + 1, iz));
+            const h01 = pos.getY(vertIndex(ix, iz + 1));
+            const h11 = pos.getY(vertIndex(ix + 1, iz + 1));
+            return h00 * (1 - tx) * (1 - tz) + h10 * tx * (1 - tz) + h01 * (1 - tx) * tz + h11 * tx * tz;
+        }
+
+        function writeLocalNormal(ix, iy) {
+            const pos = terrainPos();
+            const nrm = terrainNrm();
+            const ix0 = Math.max(0, ix - 1), ix1 = Math.min(SEGMENTS, ix + 1);
+            const iy0 = Math.max(0, iy - 1), iy1 = Math.min(SEGMENTS, iy + 1);
+            const dhdx = (pos.getY(vertIndex(ix1, iy)) - pos.getY(vertIndex(ix0, iy))) / ((ix1 - ix0) * CELL);
+            const dhdz = (pos.getY(vertIndex(ix, iy1)) - pos.getY(vertIndex(ix, iy0))) / ((iy1 - iy0) * CELL);
+            const n = _sculptNormal.set(-dhdx, 1, -dhdz).normalize();
+            const i = vertIndex(ix, iy);
+            nrm.setXYZ(i, n.x, n.y, n.z);
+            return n;
+        }
+
+        const _sculptColor = new THREE.Color();
+        const _sculptNormal = new THREE.Vector3();
+        let sculptDirty = false;
+        function depositSand(wx, wz, amount, radius) {
+            const fx = (wx + HALF) / CELL;
+            const fz = (wz + HALF) / CELL;
+            if (fx < -1 || fz < -1 || fx > SEGMENTS + 1 || fz > SEGMENTS + 1) return false;
+            const rCells = Math.max(1, Math.ceil(radius / CELL));
+            const cx = Math.round(fx), cz = Math.round(fz);
+            const pos = terrainPos();
+            const col = terrainCol();
+            const r2 = radius * radius;
+            let changed = false;
+            const ix0 = Math.max(0, cx - rCells), ix1 = Math.min(SEGMENTS, cx + rCells);
+            const iy0 = Math.max(0, cz - rCells), iy1 = Math.min(SEGMENTS, cz + rCells);
+            for (let iy = iy0; iy <= iy1; iy++) {
+                for (let ix = ix0; ix <= ix1; ix++) {
+                    const px = pos.getX(vertIndex(ix, iy));
+                    const pz = pos.getZ(vertIndex(ix, iy));
+                    const d2 = (px - wx) * (px - wx) + (pz - wz) * (pz - wz);
+                    if (d2 > r2) continue;
+                    const falloff = Math.pow(1 - d2 / r2, 2);
+                    const i = vertIndex(ix, iy);
+                    const next = THREE.MathUtils.clamp(pos.getY(i) + amount * falloff, MIN_SCULPT_HEIGHT, MAX_SCULPT_HEIGHT);
+                    if (next === pos.getY(i)) continue;
+                    pos.setY(i, next);
+                    changed = true;
+                }
+            }
+            if (!changed) return false;
+            for (let iy = iy0; iy <= iy1; iy++) {
+                for (let ix = ix0; ix <= ix1; ix++) {
+                    const n = writeLocalNormal(ix, iy);
+                    const i = vertIndex(ix, iy);
+                    colorFromHeight(pos.getY(i), THREE.MathUtils.clamp(1 - n.y, 0, 1), _sculptColor);
+                    col.setXYZ(i, _sculptColor.r, _sculptColor.g, _sculptColor.b);
+                }
+            }
+            pos.needsUpdate = true;
+            terrainNrm().needsUpdate = true;
+            col.needsUpdate = true;
+            sculptDirty = true;
+            return true;
+        }
+
         // ---- Water -----------------------------------------------------------
         const waterNormals = new THREE.TextureLoader().load(WATER_NORMALS_URL, (t) => {
             t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -450,6 +567,259 @@
         water.rotation.x = -Math.PI / 2;
         water.position.y = 0.0;
         scene.add(water);
+
+        // ---- Sand gun + particle stream -------------------------------------
+        function makeSandGun() {
+            const gun = new THREE.Group();
+            gun.name = 'sandGun';
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.85, metalness: 0.15 });
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x8a7350, roughness: 0.45, metalness: 0.55 });
+            const sandMat = new THREE.MeshStandardMaterial({ color: 0xddb163, roughness: 1 });
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.22), bodyMat);
+            body.position.set(0, 0, -0.02);
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.032, 0.28, 10), metalMat);
+            barrel.rotation.x = Math.PI / 2;
+            barrel.position.set(0, 0.01, -0.22);
+            const hopper = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.12, 8), sandMat);
+            hopper.position.set(0, 0.1, 0.02);
+            const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.06), bodyMat);
+            grip.position.set(0, -0.08, 0.06);
+            gun.add(body, barrel, hopper, grip);
+            const muzzle = new THREE.Object3D();
+            muzzle.position.set(0, 0.01, -0.38);
+            gun.add(muzzle);
+            gun.userData.muzzle = muzzle;
+            return gun;
+        }
+
+        const sandGun = makeSandGun();
+        camera.add(sandGun);
+        sandGun.position.set(0.22, -0.16, -0.38);
+        sandGun.rotation.set(0.08, -0.12, 0);
+
+        const PARTICLE_COUNT = isQuestLike ? 180 : 420;
+        const sandPositions = new Float32Array(PARTICLE_COUNT * 3);
+        const sandColors = new Float32Array(PARTICLE_COUNT * 3);
+        const sandParticles = [];
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            sandPositions[i * 3 + 1] = -9999;
+            sandParticles.push({
+                active: false,
+                life: 0,
+                x: 0, y: 0, z: 0,
+                vx: 0, vy: 0, vz: 0,
+                deposit: 1,
+            });
+        }
+        const sandGeo = new THREE.BufferGeometry();
+        sandGeo.setAttribute('position', new THREE.BufferAttribute(sandPositions, 3));
+        sandGeo.setAttribute('color', new THREE.BufferAttribute(sandColors, 3));
+        const grainCanvas = document.createElement('canvas');
+        grainCanvas.width = grainCanvas.height = 32;
+        {
+            const g = grainCanvas.getContext('2d');
+            const grd = g.createRadialGradient(16, 16, 1, 16, 16, 15);
+            grd.addColorStop(0, 'rgba(245,210,140,1)');
+            grd.addColorStop(0.45, 'rgba(210,160,80,0.95)');
+            grd.addColorStop(1, 'rgba(160,110,50,0)');
+            g.fillStyle = grd;
+            g.fillRect(0, 0, 32, 32);
+        }
+        const grainTex = new THREE.CanvasTexture(grainCanvas);
+        const sandPoints = new THREE.Points(
+            sandGeo,
+            new THREE.PointsMaterial({
+                map: grainTex,
+                size: isQuestLike ? 4.2 : 6.5,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.95,
+                depthWrite: false,
+                sizeAttenuation: true,
+                alphaTest: 0.08,
+            })
+        );
+        sandPoints.frustumCulled = false;
+        scene.add(sandPoints);
+
+        const _muzzleWorld = new THREE.Vector3();
+        const _aimDir = new THREE.Vector3();
+        const _rightCtrl = new THREE.Vector3();
+        let fireHeld = false;
+        let fireDig = false;
+        let spawnAcc = 0;
+        let aimDepositAcc = 0;
+        let xrFireHeld = false;
+        let sandMoved = 0;
+        const mouseButtons = { 0: false, 2: false };
+
+        function aimSurfaceHit(origin, dir, maxDist = 900) {
+            const step = 8;
+            for (let d = 4; d < maxDist; d += step) {
+                const x = origin.x + dir.x * d;
+                const y = origin.y + dir.y * d;
+                const z = origin.z + dir.z * d;
+                const h = sampleHeight(x, z);
+                if (y <= h + 1.8) return { x, z };
+            }
+            return null;
+        }
+
+        function spawnSandParticle(dig) {
+            const p = sandParticles.find((s) => !s.active);
+            if (!p) return;
+            sandGun.userData.muzzle.getWorldPosition(_muzzleWorld);
+            if (xrActive) {
+                // Aim along the gun/controller forward (local -Z).
+                sandGun.getWorldDirection(_aimDir);
+                _aimDir.negate();
+            } else {
+                camera.getWorldDirection(_aimDir);
+            }
+            const spread = 0.045;
+            _aimDir.x += (Math.random() - 0.5) * spread;
+            _aimDir.y += (Math.random() - 0.5) * spread;
+            _aimDir.z += (Math.random() - 0.5) * spread;
+            _aimDir.normalize();
+            const speed = 48 + Math.random() * 28;
+            p.active = true;
+            p.life = 2.4;
+            p.x = _muzzleWorld.x;
+            p.y = _muzzleWorld.y;
+            p.z = _muzzleWorld.z;
+            p.vx = _aimDir.x * speed;
+            p.vy = _aimDir.y * speed;
+            p.vz = _aimDir.z * speed;
+            p.deposit = dig ? -1 : 1;
+        }
+
+        function stepSandParticles(dt) {
+            const gravity = 38;
+            const radius = params.brushRadius;
+            const strength = params.flow * (isQuestLike ? 0.55 : 0.35);
+            let moved = false;
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const p = sandParticles[i];
+                const o = i * 3;
+                if (!p.active) {
+                    if (sandPositions[o + 1] !== -9999) {
+                        sandPositions[o + 1] = -9999;
+                        moved = true;
+                    }
+                    continue;
+                }
+                p.life -= dt;
+                p.vy -= gravity * dt;
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.z += p.vz * dt;
+                const ground = sampleHeight(p.x, p.z);
+                const out = Math.abs(p.x) > HALF || Math.abs(p.z) > HALF || p.y < -30 || p.life <= 0;
+                if (out || p.y <= ground + 0.8) {
+                    if (!out) {
+                        if (depositSand(p.x, p.z, p.deposit * strength, radius)) {
+                            sandMoved += p.deposit * strength;
+                        }
+                    }
+                    p.active = false;
+                    sandPositions[o + 1] = -9999;
+                    moved = true;
+                    continue;
+                }
+                sandPositions[o] = p.x;
+                sandPositions[o + 1] = p.y;
+                sandPositions[o + 2] = p.z;
+                const warm = 0.85 + Math.random() * 0.15;
+                sandColors[o] = 0.86 * warm;
+                sandColors[o + 1] = 0.68 * warm;
+                sandColors[o + 2] = 0.38 * warm;
+                moved = true;
+            }
+            if (moved) {
+                sandGeo.attributes.position.needsUpdate = true;
+                sandGeo.attributes.color.needsUpdate = true;
+            }
+            if (sculptDirty) {
+                terrain.geometry.computeBoundingSphere();
+                sculptDirty = false;
+            }
+        }
+
+        function attachGunToCamera() {
+            if (sandGun.parent !== camera) {
+                camera.add(sandGun);
+                sandGun.position.set(0.22, -0.16, -0.38);
+                sandGun.rotation.set(0.08, -0.12, 0);
+                sandGun.scale.setScalar(1);
+            }
+        }
+
+        function attachGunToRightController() {
+            const session = renderer.xr.getSession();
+            let rightGrip = xrControllers[1].grip;
+            if (session) {
+                for (const source of session.inputSources) {
+                    if (source.handedness === 'right') {
+                        const idx = [...session.inputSources].indexOf(source);
+                        if (xrControllers[idx]) rightGrip = xrControllers[idx].grip;
+                    }
+                }
+            }
+            if (sandGun.parent !== rightGrip) {
+                rightGrip.add(sandGun);
+                sandGun.position.set(0, -0.02, -0.08);
+                sandGun.rotation.set(-0.35, 0, 0);
+                sandGun.scale.setScalar(1);
+            }
+        }
+
+        function updateSandGun(dt) {
+            fireHeld = params.sandGun && (
+                keys['KeyF'] || keys['f'] ||
+                (controls.isLocked && mouseButtons[0]) ||
+                xrFireHeld ||
+                performance.now() < burstUntil
+            );
+            fireDig = params.modeSand === 'Dig' || keys['KeyG'] || (controls.isLocked && mouseButtons[2] && !mouseButtons[0]);
+            document.getElementById('crosshair').classList.toggle('on', !xrActive && controls.isLocked && params.sandGun);
+
+            if (xrActive) attachGunToRightController();
+            else attachGunToCamera();
+            sandGun.visible = params.sandGun;
+
+            if (fireHeld && params.sandGun) {
+                spawnAcc += dt;
+                aimDepositAcc += dt;
+                const rate = (isQuestLike ? 32 : 64) * params.flow;
+                const interval = 1 / rate;
+                while (spawnAcc >= interval) {
+                    spawnAcc -= interval;
+                    spawnSandParticle(fireDig);
+                }
+                // Hitscan assist: grow the dune under the aim even if grains scatter.
+                if (aimDepositAcc >= 0.05) {
+                    aimDepositAcc = 0;
+                    sandGun.userData.muzzle.getWorldPosition(_muzzleWorld);
+                    if (xrActive) {
+                        sandGun.getWorldDirection(_aimDir);
+                        _aimDir.negate();
+                    } else {
+                        camera.getWorldDirection(_aimDir);
+                    }
+                    const hit = aimSurfaceHit(_muzzleWorld, _aimDir);
+                    if (hit) {
+                        const sign = fireDig ? -1 : 1;
+                        if (depositSand(hit.x, hit.z, sign * params.flow * 1.15, params.brushRadius)) {
+                            sandMoved += sign * params.flow;
+                        }
+                    }
+                }
+            } else {
+                spawnAcc = 0;
+                aimDepositAcc = 0;
+            }
+            stepSandParticles(dt);
+        }
 
         // ---- WebXR controllers (Quest Touch / Touch Plus) -------------------
         const controllerModelFactory = new XRControllerModelFactory();
@@ -474,9 +844,11 @@
         });
         renderer.xr.addEventListener('sessionend', () => {
             xrActive = false;
+            xrFireHeld = false;
             camera.position.set(0, 0, 0);
             camera.rotation.set(0, 0, 0);
             applyXrQuality(false);
+            attachGunToCamera();
             overlay.classList.remove('hidden');
         });
 
@@ -503,6 +875,7 @@
             let climb = 0;
             let sprint = false;
             let togglePressed = false;
+            xrFireHeld = false;
 
             for (const source of session.inputSources) {
                 const pad = source.gamepad;
@@ -525,8 +898,12 @@
                     move.z += sy;
                 }
 
-                // Trigger = sprint; A/X (xr-standard button 4) = walk/fly toggle.
-                if (pad.buttons[0] && pad.buttons[0].pressed) sprint = true;
+                // Trigger = sand gun; grip/squeeze = sprint; A/X = walk/fly.
+                if (pad.buttons[0] && pad.buttons[0].pressed) {
+                    if (source.handedness !== 'left') xrFireHeld = true;
+                    else sprint = true;
+                }
+                if (pad.buttons[1] && pad.buttons[1].pressed) sprint = true;
                 if (pad.buttons[4] && pad.buttons[4].pressed) togglePressed = true;
             }
             if (togglePressed && !xrToggleHeld) setMode(!isFlying);
@@ -594,6 +971,7 @@
                 const geo = buildTerrainGeometry();
                 terrain.geometry.dispose();
                 terrain.geometry = geo;
+                for (const p of sandParticles) p.active = false;
                 document.getElementById('loading').classList.add('hidden');
             }));
         }
@@ -607,7 +985,14 @@
         overlay.addEventListener('click', () => controls.lock());
         renderer.domElement.addEventListener('click', () => controls.lock());
         controls.addEventListener('lock', () => overlay.classList.add('hidden'));
-        controls.addEventListener('unlock', () => overlay.classList.remove('hidden'));
+        controls.addEventListener('unlock', () => {
+            overlay.classList.remove('hidden');
+            mouseButtons[0] = false;
+            mouseButtons[2] = false;
+        });
+        document.addEventListener('mousedown', (e) => { mouseButtons[e.button] = true; });
+        document.addEventListener('mouseup', (e) => { mouseButtons[e.button] = false; });
+        document.addEventListener('contextmenu', (e) => e.preventDefault());
 
         const keys = {};
         let isFlying = true;
@@ -622,17 +1007,19 @@
 
         document.addEventListener('keydown', (e) => {
             keys[e.code] = true;
+            keys[e.key.toLowerCase()] = true;
             if (e.code === 'Space') { e.preventDefault(); setMode(!isFlying); }
             if (e.code === 'KeyR') { e.preventDefault(); regenerate(); }
         });
-        document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+        document.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+            keys[e.key.toLowerCase()] = false;
+        });
 
         const raycaster = new THREE.Raycaster();
         raycaster.ray.direction.set(0, -1, 0);
         function getTerrainHeight(x, z) {
-            raycaster.ray.origin.set(x, 1200, z);
-            const hit = raycaster.intersectObject(terrain);
-            return hit.length > 0 ? hit[0].point.y : player.position.y - 6;
+            return sampleHeight(x, z);
         }
 
         function constrainPlayer() {
@@ -658,8 +1045,25 @@
             wireframe: false,
             mode: 'Fly',
             speed: 1.0,
+            sandGun: true,
+            modeSand: 'Build',
+            brushRadius: 26,
+            flow: 1.0,
+            sprayBurst() {
+                burstUntil = performance.now() + 2500;
+                camera.getWorldDirection(_aimDir);
+                camera.getWorldPosition(_muzzleWorld);
+                const hit = aimSurfaceHit(_muzzleWorld, _aimDir);
+                if (hit) {
+                    const sign = params.modeSand === 'Dig' ? -1 : 1;
+                    if (depositSand(hit.x, hit.z, sign * 10, params.brushRadius)) {
+                        sandMoved += sign * 10;
+                    }
+                }
+            },
             regenerate: regenerate,
         };
+        let burstUntil = 0;
         let waterWaveAmp = 0.3 + params.windStrength * 1.6;
 
         const gui = new GUI({ title: 'Explorer Controls' });
@@ -681,6 +1085,14 @@
         modeController = fNav.add(params, 'mode', ['Fly', 'Walk']).name('Mode')
             .onChange((v) => setMode(v === 'Fly'));
         fNav.add(params, 'speed', 0.2, 4, 0.1).name('Move speed');
+
+        const fGun = gui.addFolder('Sand gun');
+        fGun.add(params, 'sandGun').name('Enabled');
+        fGun.add(params, 'modeSand', ['Build', 'Dig']).name('Mode');
+        fGun.add(params, 'brushRadius', 8, 70, 1).name('Dune radius');
+        fGun.add(params, 'flow', 0.25, 2.5, 0.05).name('Flow');
+        fGun.add(params, 'sprayBurst').name('Spray 2.5s (from camera)');
+        fGun.open();
 
         // ---- Init ------------------------------------------------------------
         updateWind();
@@ -729,12 +1141,15 @@
                 constrainPlayer();
             }
 
+            updateSandGun(dt);
+
             // HUD — world pose (headset offset in VR, camera origin on desktop).
             const worldPos = new THREE.Vector3();
             camera.getWorldPosition(worldPos);
             document.getElementById('dbg-x').textContent = worldPos.x.toFixed(1);
             document.getElementById('dbg-y').textContent = worldPos.y.toFixed(1);
             document.getElementById('dbg-z').textContent = worldPos.z.toFixed(1);
+            document.getElementById('dbg-sand').textContent = sandMoved.toFixed(1);
             fpsTimer += dt; fpsFrames++;
             if (fpsTimer >= 0.5) {
                 document.getElementById('dbg-fps').textContent = Math.round(fpsFrames / fpsTimer);
