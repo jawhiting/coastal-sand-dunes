@@ -43,6 +43,7 @@ In a Cursor Cloud Agent this server starts automatically (see `.cursor/environme
 - **R** - Regenerate a new dune landscape
 - **F** or hold **left mouse** - Fire the sand gun (build a dune)
 - **G** or hold **right mouse** - Dig sand away
+- **C** / **V** - Cycle sand colour forward / back
 - **Esc** - Release pointer lock
 
 ### Meta Quest / WebXR
@@ -61,6 +62,7 @@ Quest Browser (and other WebXR headsets) can enter true stereoscopic VR. This us
 | Right trigger | Sand gun (build or dig, per the panel) |
 | Grip / squeeze | Sprint |
 | A / X | Toggle Walk / Fly |
+| B / Y | Cycle sand colour |
 
 Walk mode follows the dune surface; Fly mode is free 3D movement. Shadows and mesh density are reduced automatically on Quest so stereo rendering stays smoother.
 
@@ -68,7 +70,8 @@ Walk mode follows the dune surface; Fly mode is free 3D movement. Shadows and me
 
 You can change the landscape while you are in it. A height-field brush raises or lowers nearby terrain vertices where a stream of sand grains lands, then updates local lighting and sand color.
 
-- **Desktop:** enter the scene, aim with the mouse, hold **F** or the left mouse button to spray. Hold **G** or the right mouse button to dig. The **Sand gun** folder in the control panel sets Build/Dig, dune radius, and flow.
+- **Desktop:** enter the scene, aim with the mouse, hold **F** or the left mouse button to spray. Hold **G** or the right mouse button to dig. Press **C** or **V** (or use the Colour dropdown) to cycle Gold, Ivory, Red, Black, Pink, Moss, Ocean, and Violet. That colour tints both the grain stream and the vertices that the brush moves.
+- The **Sand gun** folder also has Build/Dig, radius, flow, and **Spray 2.5s (from camera)**.
 - **Quest:** hold the **right trigger** to fire from the in-hand sand gun. Grip is sprint so you can still move quickly while building.
 
 Built-up sand can make an existing ridge taller or raise a new mound, including out of the shallows. **R** / Regenerate resets the island.

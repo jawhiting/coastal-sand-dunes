@@ -166,7 +166,8 @@
         <div class="row"><kbd>R</kbd> New dunes</div>
         <div class="row"><kbd>F</kbd> / <kbd>LMB</kbd> Sand gun (build)</div>
         <div class="row"><kbd>G</kbd> / <kbd>RMB</kbd> Dig sand</div>
-        <div class="hint">Quest: tap <b>ENTER VR</b>. Left stick move, right stick turn, <b>trigger</b> sand gun, grip sprint, A/X walk/fly.</div>
+        <div class="row"><kbd>C</kbd> / <kbd>V</kbd> Cycle sand colour</div>
+        <div class="hint">Quest: trigger sprays, grip sprints, A/X walk/fly, <b>B/Y</b> cycles sand colour.</div>
     </div>
 
     <div id="mode-indicator" class="panel"><span class="dot"></span><span id="mode-text">Fly Mode</span></div>
@@ -177,13 +178,14 @@
         <div><span class="k">Z</span> <span id="dbg-z">0.0</span></div>
         <div><span class="k">FPS</span> <span id="dbg-fps">0</span></div>
         <div><span class="k">SAND</span> <span id="dbg-sand">0.0</span></div>
+        <div><span class="k">CLR</span> <span id="dbg-color">Gold</span></div>
     </div>
 
     <div id="click-overlay">
         <div class="card">
             <h2>Coastal Sand Dunes</h2>
             <p>An interactive, procedurally generated dune landscape.</p>
-            <div class="big">Desktop: click to enter &middot; <b>WASD</b> + mouse &middot; hold <b>F</b> to spray sand<br>Quest: tap <b>ENTER VR</b>, then hold the trigger to build dunes</div>
+            <div class="big">Desktop: click to enter &middot; hold <b>F</b> to spray &middot; <b>C</b> cycles sand colour<br>Quest: hold trigger to build &middot; <b>B/Y</b> cycles colour</div>
         </div>
     </div>
 
@@ -349,6 +351,44 @@
         const C_CREST = new THREE.Color(0xf3dd9e);
         const C_LEE = new THREE.Color(0x9c6f3c);
 
+        const SAND_PALETTE = [
+            { name: 'Gold', color: new THREE.Color(0xddb163) },
+            { name: 'Ivory', color: new THREE.Color(0xf3e6c4) },
+            { name: 'Red', color: new THREE.Color(0xc45a28) },
+            { name: 'Black', color: new THREE.Color(0x3a322c) },
+            { name: 'Pink', color: new THREE.Color(0xe89a8a) },
+            { name: 'Moss', color: new THREE.Color(0x6f8f4e) },
+            { name: 'Ocean', color: new THREE.Color(0x3d7a8c) },
+            { name: 'Violet', color: new THREE.Color(0x7a5a8a) },
+        ];
+        let sandColorIndex = 0;
+        let colorController;
+        const _paintColor = new THREE.Color();
+        function activeSandSwatch() { return SAND_PALETTE[sandColorIndex]; }
+        function applySandColorPreview() {
+            const swatch = activeSandSwatch();
+            if (sandGun && sandGun.userData.hopperMat) {
+                sandGun.userData.hopperMat.color.copy(swatch.color);
+            }
+            const cross = document.getElementById('crosshair');
+            if (cross) cross.style.borderColor = '#' + swatch.color.getHexString();
+            const label = document.getElementById('dbg-color');
+            if (label) label.textContent = swatch.name;
+            if (params) params.sandColor = swatch.name;
+            if (colorController) colorController.updateDisplay();
+        }
+        function cycleSandColor(dir = 1) {
+            sandColorIndex = (sandColorIndex + dir + SAND_PALETTE.length) % SAND_PALETTE.length;
+            applySandColorPreview();
+        }
+        function setSandColorByName(name) {
+            const idx = SAND_PALETTE.findIndex((s) => s.name === name);
+            if (idx >= 0) {
+                sandColorIndex = idx;
+                applySandColorPreview();
+            }
+        }
+
         function applyVertexColors(geometry) {
             const pos = geometry.attributes.position;
             const nrm = geometry.attributes.normal;
@@ -508,7 +548,7 @@
         const _sculptColor = new THREE.Color();
         const _sculptNormal = new THREE.Vector3();
         let sculptDirty = false;
-        function depositSand(wx, wz, amount, radius) {
+        function depositSand(wx, wz, amount, radius, paintColor) {
             const fx = (wx + HALF) / CELL;
             const fz = (wz + HALF) / CELL;
             if (fx < -1 || fz < -1 || fx > SEGMENTS + 1 || fz > SEGMENTS + 1) return false;
@@ -518,6 +558,7 @@
             const col = terrainCol();
             const r2 = radius * radius;
             let changed = false;
+            const paint = paintColor || activeSandSwatch().color;
             const ix0 = Math.max(0, cx - rCells), ix1 = Math.min(SEGMENTS, cx + rCells);
             const iy0 = Math.max(0, cz - rCells), iy1 = Math.min(SEGMENTS, cz + rCells);
             for (let iy = iy0; iy <= iy1; iy++) {
@@ -529,20 +570,19 @@
                     const falloff = Math.pow(1 - d2 / r2, 2);
                     const i = vertIndex(ix, iy);
                     const next = THREE.MathUtils.clamp(pos.getY(i) + amount * falloff, MIN_SCULPT_HEIGHT, MAX_SCULPT_HEIGHT);
-                    if (next === pos.getY(i)) continue;
-                    pos.setY(i, next);
+                    if (next !== pos.getY(i)) {
+                        pos.setY(i, next);
+                        changed = true;
+                    }
+                    const n = writeLocalNormal(ix, iy);
+                    colorFromHeight(pos.getY(i), THREE.MathUtils.clamp(1 - n.y, 0, 1), _sculptColor);
+                    _paintColor.copy(paint).lerp(C_LEE, THREE.MathUtils.clamp(1 - n.y, 0, 1) * 0.28);
+                    _sculptColor.lerp(_paintColor, 0.25 + falloff * 0.75);
+                    col.setXYZ(i, _sculptColor.r, _sculptColor.g, _sculptColor.b);
                     changed = true;
                 }
             }
             if (!changed) return false;
-            for (let iy = iy0; iy <= iy1; iy++) {
-                for (let ix = ix0; ix <= ix1; ix++) {
-                    const n = writeLocalNormal(ix, iy);
-                    const i = vertIndex(ix, iy);
-                    colorFromHeight(pos.getY(i), THREE.MathUtils.clamp(1 - n.y, 0, 1), _sculptColor);
-                    col.setXYZ(i, _sculptColor.r, _sculptColor.g, _sculptColor.b);
-                }
-            }
             pos.needsUpdate = true;
             terrainNrm().needsUpdate = true;
             col.needsUpdate = true;
@@ -589,6 +629,7 @@
             muzzle.position.set(0, 0.01, -0.38);
             gun.add(muzzle);
             gun.userData.muzzle = muzzle;
+            gun.userData.hopperMat = sandMat;
             return gun;
         }
 
@@ -609,6 +650,7 @@
                 x: 0, y: 0, z: 0,
                 vx: 0, vy: 0, vz: 0,
                 deposit: 1,
+                cr: 0.86, cg: 0.68, cb: 0.38,
             });
         }
         const sandGeo = new THREE.BufferGeometry();
@@ -691,6 +733,10 @@
             p.vy = _aimDir.y * speed;
             p.vz = _aimDir.z * speed;
             p.deposit = dig ? -1 : 1;
+            const c = activeSandSwatch().color;
+            p.cr = c.r;
+            p.cg = c.g;
+            p.cb = c.b;
         }
 
         function stepSandParticles(dt) {
@@ -717,7 +763,7 @@
                 const out = Math.abs(p.x) > HALF || Math.abs(p.z) > HALF || p.y < -30 || p.life <= 0;
                 if (out || p.y <= ground + 0.8) {
                     if (!out) {
-                        if (depositSand(p.x, p.z, p.deposit * strength, radius)) {
+                        if (depositSand(p.x, p.z, p.deposit * strength, radius, _paintColor.setRGB(p.cr, p.cg, p.cb))) {
                             sandMoved += p.deposit * strength;
                         }
                     }
@@ -729,10 +775,10 @@
                 sandPositions[o] = p.x;
                 sandPositions[o + 1] = p.y;
                 sandPositions[o + 2] = p.z;
-                const warm = 0.85 + Math.random() * 0.15;
-                sandColors[o] = 0.86 * warm;
-                sandColors[o + 1] = 0.68 * warm;
-                sandColors[o + 2] = 0.38 * warm;
+                const warm = 0.88 + Math.random() * 0.12;
+                sandColors[o] = p.cr * warm;
+                sandColors[o + 1] = p.cg * warm;
+                sandColors[o + 2] = p.cb * warm;
                 moved = true;
             }
             if (moved) {
@@ -835,6 +881,7 @@
         let xrActive = false;
         let snapTurnReady = true;
         let xrToggleHeld = false;
+        let xrColorHeld = false;
         renderer.xr.addEventListener('sessionstart', () => {
             xrActive = true;
             overlay.classList.add('hidden');
@@ -875,6 +922,7 @@
             let climb = 0;
             let sprint = false;
             let togglePressed = false;
+            let colorPressed = false;
             xrFireHeld = false;
 
             for (const source of session.inputSources) {
@@ -905,9 +953,12 @@
                 }
                 if (pad.buttons[1] && pad.buttons[1].pressed) sprint = true;
                 if (pad.buttons[4] && pad.buttons[4].pressed) togglePressed = true;
+                if (pad.buttons[5] && pad.buttons[5].pressed) colorPressed = true;
             }
             if (togglePressed && !xrToggleHeld) setMode(!isFlying);
             xrToggleHeld = togglePressed;
+            if (colorPressed && !xrColorHeld) cycleSandColor(1);
+            xrColorHeld = colorPressed;
 
             const speed = (sprint ? 3.0 : 1.0) * baseSpeed * params.speed * (dt * 60);
             if (move.lengthSq() > 0) {
@@ -1010,6 +1061,8 @@
             keys[e.key.toLowerCase()] = true;
             if (e.code === 'Space') { e.preventDefault(); setMode(!isFlying); }
             if (e.code === 'KeyR') { e.preventDefault(); regenerate(); }
+            if (e.code === 'KeyC') { e.preventDefault(); cycleSandColor(1); }
+            if (e.code === 'KeyV') { e.preventDefault(); cycleSandColor(-1); }
         });
         document.addEventListener('keyup', (e) => {
             keys[e.code] = false;
@@ -1047,6 +1100,7 @@
             speed: 1.0,
             sandGun: true,
             modeSand: 'Build',
+            sandColor: 'Gold',
             brushRadius: 26,
             flow: 1.0,
             sprayBurst() {
@@ -1089,10 +1143,15 @@
         const fGun = gui.addFolder('Sand gun');
         fGun.add(params, 'sandGun').name('Enabled');
         fGun.add(params, 'modeSand', ['Build', 'Dig']).name('Mode');
+        colorController = fGun.add(params, 'sandColor', SAND_PALETTE.map((s) => s.name))
+            .name('Colour')
+            .onChange(setSandColorByName);
+        fGun.add({ next: () => cycleSandColor(1) }, 'next').name('Next colour (C)');
         fGun.add(params, 'brushRadius', 8, 70, 1).name('Dune radius');
         fGun.add(params, 'flow', 0.25, 2.5, 0.05).name('Flow');
         fGun.add(params, 'sprayBurst').name('Spray 2.5s (from camera)');
         fGun.open();
+        applySandColorPreview();
 
         // ---- Init ------------------------------------------------------------
         updateWind();
