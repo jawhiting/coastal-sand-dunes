@@ -41,6 +41,8 @@ In a Cursor Cloud Agent this server starts automatically (see `.cursor/environme
 - **Q** - Move up (Fly mode only)
 - **E** - Move down (Fly mode only)
 - **R** - Regenerate a new dune landscape
+- **F** or hold **left mouse** - Fire the sand gun (build a dune)
+- **G** or hold **right mouse** - Dig sand away
 - **Esc** - Release pointer lock
 
 ### Meta Quest / WebXR
@@ -56,10 +58,20 @@ Quest Browser (and other WebXR headsets) can enter true stereoscopic VR. This us
 | Left thumbstick | Move |
 | Right thumbstick left/right | Snap-turn 30° |
 | Right thumbstick up/down | Fly up/down (Fly mode) |
-| Trigger | Sprint |
+| Right trigger | Sand gun (build or dig, per the panel) |
+| Grip / squeeze | Sprint |
 | A / X | Toggle Walk / Fly |
 
 Walk mode follows the dune surface; Fly mode is free 3D movement. Shadows and mesh density are reduced automatically on Quest so stereo rendering stays smoother.
+
+### Sand gun (sculpt the dunes)
+
+You can change the landscape while you are in it. A height-field brush raises or lowers nearby terrain vertices where a stream of sand grains lands, then updates local lighting and sand color.
+
+- **Desktop:** enter the scene, aim with the mouse, hold **F** or the left mouse button to spray. Hold **G** or the right mouse button to dig. The **Sand gun** folder in the control panel sets Build/Dig, dune radius, and flow.
+- **Quest:** hold the **right trigger** to fire from the in-hand sand gun. Grip is sprint so you can still move quickly while building.
+
+Built-up sand can make an existing ridge taller or raise a new mound, including out of the shallows. **R** / Regenerate resets the island.
 
 ### Control panel (top-right)
 
