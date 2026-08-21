@@ -364,6 +364,8 @@
         let sandColorIndex = 0;
         let colorController;
         const _paintColor = new THREE.Color();
+        const _paintSrc = new THREE.Color();
+        const _grainPaint = new THREE.Color();
         function activeSandSwatch() { return SAND_PALETTE[sandColorIndex]; }
         function applySandColorPreview() {
             const swatch = activeSandSwatch();
@@ -558,7 +560,9 @@
             const col = terrainCol();
             const r2 = radius * radius;
             let changed = false;
-            const paint = paintColor || activeSandSwatch().color;
+            // Copy into a stable source so later lerp steps cannot mutate the caller's colour
+            // (particles used to pass `_paintColor` itself).
+            _paintSrc.copy(paintColor || activeSandSwatch().color);
             const ix0 = Math.max(0, cx - rCells), ix1 = Math.min(SEGMENTS, cx + rCells);
             const iy0 = Math.max(0, cz - rCells), iy1 = Math.min(SEGMENTS, cz + rCells);
             for (let iy = iy0; iy <= iy1; iy++) {
@@ -575,11 +579,17 @@
                         changed = true;
                     }
                     const n = writeLocalNormal(ix, iy);
-                    colorFromHeight(pos.getY(i), THREE.MathUtils.clamp(1 - n.y, 0, 1), _sculptColor);
-                    _paintColor.copy(paint).lerp(C_LEE, THREE.MathUtils.clamp(1 - n.y, 0, 1) * 0.28);
-                    _sculptColor.lerp(_paintColor, 0.25 + falloff * 0.75);
-                    col.setXYZ(i, _sculptColor.r, _sculptColor.g, _sculptColor.b);
-                    changed = true;
+                    // Blend from the colour already on the vertex. Rebuilding from the
+                    // natural height palette here was wiping a fresh paint the moment
+                    // later grains (weaker falloff / hitscan overlap) landed.
+                    if (falloff >= 0.08) {
+                        const slope = THREE.MathUtils.clamp(1 - n.y, 0, 1);
+                        _sculptColor.fromBufferAttribute(col, i);
+                        _paintColor.copy(_paintSrc).lerp(C_LEE, slope * 0.22);
+                        _sculptColor.lerp(_paintColor, falloff * 0.9);
+                        col.setXYZ(i, _sculptColor.r, _sculptColor.g, _sculptColor.b);
+                        changed = true;
+                    }
                 }
             }
             if (!changed) return false;
@@ -763,7 +773,7 @@
                 const out = Math.abs(p.x) > HALF || Math.abs(p.z) > HALF || p.y < -30 || p.life <= 0;
                 if (out || p.y <= ground + 0.8) {
                     if (!out) {
-                        if (depositSand(p.x, p.z, p.deposit * strength, radius, _paintColor.setRGB(p.cr, p.cg, p.cb))) {
+                        if (depositSand(p.x, p.z, p.deposit * strength, radius, _grainPaint.setRGB(p.cr, p.cg, p.cb))) {
                             sandMoved += p.deposit * strength;
                         }
                     }
