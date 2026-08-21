@@ -92,7 +92,9 @@
             transition: opacity 0.4s ease;
             cursor: pointer;
             z-index: 5;
+            pointer-events: none;
         }
+        #click-overlay .card { pointer-events: auto; }
         #click-overlay.hidden { opacity: 0; pointer-events: none; }
         #click-overlay .card {
             text-align: center;
@@ -121,8 +123,8 @@
         #loading.hidden { display: none; }
 
         /* lil-gui tweaks */
-        .lil-gui { --background-color: var(--panel-bg); --widget-height: 24px; z-index: 6; }
-        .lil-gui.root { top: 18px; right: 18px; margin-top: 58px; }
+        .lil-gui { --background-color: var(--panel-bg); --widget-height: 24px; z-index: 30; }
+        .lil-gui.root { top: 18px; right: 18px; margin-top: 58px; z-index: 30; }
 
         /* Three.js VRButton sits above the intro overlay so Quest users can enter VR. */
         #VRButton, a#VRButton {
@@ -174,6 +176,7 @@
         <div><span class="k">Y</span> <span id="dbg-y">0.0</span></div>
         <div><span class="k">Z</span> <span id="dbg-z">0.0</span></div>
         <div><span class="k">FPS</span> <span id="dbg-fps">0</span></div>
+        <div><span class="k">SAND</span> <span id="dbg-sand">0.0</span></div>
     </div>
 
     <div id="click-overlay">
@@ -611,15 +614,29 @@
         const sandGeo = new THREE.BufferGeometry();
         sandGeo.setAttribute('position', new THREE.BufferAttribute(sandPositions, 3));
         sandGeo.setAttribute('color', new THREE.BufferAttribute(sandColors, 3));
+        const grainCanvas = document.createElement('canvas');
+        grainCanvas.width = grainCanvas.height = 32;
+        {
+            const g = grainCanvas.getContext('2d');
+            const grd = g.createRadialGradient(16, 16, 1, 16, 16, 15);
+            grd.addColorStop(0, 'rgba(245,210,140,1)');
+            grd.addColorStop(0.45, 'rgba(210,160,80,0.95)');
+            grd.addColorStop(1, 'rgba(160,110,50,0)');
+            g.fillStyle = grd;
+            g.fillRect(0, 0, 32, 32);
+        }
+        const grainTex = new THREE.CanvasTexture(grainCanvas);
         const sandPoints = new THREE.Points(
             sandGeo,
             new THREE.PointsMaterial({
-                size: isQuestLike ? 1.6 : 1.1,
+                map: grainTex,
+                size: isQuestLike ? 4.2 : 6.5,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.92,
+                opacity: 0.95,
                 depthWrite: false,
                 sizeAttenuation: true,
+                alphaTest: 0.08,
             })
         );
         sandPoints.frustumCulled = false;
@@ -631,8 +648,22 @@
         let fireHeld = false;
         let fireDig = false;
         let spawnAcc = 0;
+        let aimDepositAcc = 0;
         let xrFireHeld = false;
+        let sandMoved = 0;
         const mouseButtons = { 0: false, 2: false };
+
+        function aimSurfaceHit(origin, dir, maxDist = 900) {
+            const step = 8;
+            for (let d = 4; d < maxDist; d += step) {
+                const x = origin.x + dir.x * d;
+                const y = origin.y + dir.y * d;
+                const z = origin.z + dir.z * d;
+                const h = sampleHeight(x, z);
+                if (y <= h + 1.8) return { x, z };
+            }
+            return null;
+        }
 
         function spawnSandParticle(dig) {
             const p = sandParticles.find((s) => !s.active);
@@ -650,7 +681,7 @@
             _aimDir.y += (Math.random() - 0.5) * spread;
             _aimDir.z += (Math.random() - 0.5) * spread;
             _aimDir.normalize();
-            const speed = 70 + Math.random() * 40;
+            const speed = 48 + Math.random() * 28;
             p.active = true;
             p.life = 2.4;
             p.x = _muzzleWorld.x;
@@ -685,7 +716,11 @@
                 const ground = sampleHeight(p.x, p.z);
                 const out = Math.abs(p.x) > HALF || Math.abs(p.z) > HALF || p.y < -30 || p.life <= 0;
                 if (out || p.y <= ground + 0.8) {
-                    if (!out) depositSand(p.x, p.z, p.deposit * strength, radius);
+                    if (!out) {
+                        if (depositSand(p.x, p.z, p.deposit * strength, radius)) {
+                            sandMoved += p.deposit * strength;
+                        }
+                    }
                     p.active = false;
                     sandPositions[o + 1] = -9999;
                     moved = true;
@@ -740,9 +775,10 @@
 
         function updateSandGun(dt) {
             fireHeld = params.sandGun && (
-                keys['KeyF'] ||
+                keys['KeyF'] || keys['f'] ||
                 (controls.isLocked && mouseButtons[0]) ||
-                xrFireHeld
+                xrFireHeld ||
+                performance.now() < burstUntil
             );
             fireDig = params.modeSand === 'Dig' || keys['KeyG'] || (controls.isLocked && mouseButtons[2] && !mouseButtons[0]);
             document.getElementById('crosshair').classList.toggle('on', !xrActive && controls.isLocked && params.sandGun);
@@ -753,14 +789,34 @@
 
             if (fireHeld && params.sandGun) {
                 spawnAcc += dt;
-                const rate = (isQuestLike ? 28 : 55) * params.flow;
+                aimDepositAcc += dt;
+                const rate = (isQuestLike ? 32 : 64) * params.flow;
                 const interval = 1 / rate;
                 while (spawnAcc >= interval) {
                     spawnAcc -= interval;
                     spawnSandParticle(fireDig);
                 }
+                // Hitscan assist: grow the dune under the aim even if grains scatter.
+                if (aimDepositAcc >= 0.05) {
+                    aimDepositAcc = 0;
+                    sandGun.userData.muzzle.getWorldPosition(_muzzleWorld);
+                    if (xrActive) {
+                        sandGun.getWorldDirection(_aimDir);
+                        _aimDir.negate();
+                    } else {
+                        camera.getWorldDirection(_aimDir);
+                    }
+                    const hit = aimSurfaceHit(_muzzleWorld, _aimDir);
+                    if (hit) {
+                        const sign = fireDig ? -1 : 1;
+                        if (depositSand(hit.x, hit.z, sign * params.flow * 1.15, params.brushRadius)) {
+                            sandMoved += sign * params.flow;
+                        }
+                    }
+                }
             } else {
                 spawnAcc = 0;
+                aimDepositAcc = 0;
             }
             stepSandParticles(dt);
         }
@@ -951,10 +1007,14 @@
 
         document.addEventListener('keydown', (e) => {
             keys[e.code] = true;
+            keys[e.key.toLowerCase()] = true;
             if (e.code === 'Space') { e.preventDefault(); setMode(!isFlying); }
             if (e.code === 'KeyR') { e.preventDefault(); regenerate(); }
         });
-        document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+        document.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+            keys[e.key.toLowerCase()] = false;
+        });
 
         const raycaster = new THREE.Raycaster();
         raycaster.ray.direction.set(0, -1, 0);
@@ -989,8 +1049,21 @@
             modeSand: 'Build',
             brushRadius: 26,
             flow: 1.0,
+            sprayBurst() {
+                burstUntil = performance.now() + 2500;
+                camera.getWorldDirection(_aimDir);
+                camera.getWorldPosition(_muzzleWorld);
+                const hit = aimSurfaceHit(_muzzleWorld, _aimDir);
+                if (hit) {
+                    const sign = params.modeSand === 'Dig' ? -1 : 1;
+                    if (depositSand(hit.x, hit.z, sign * 10, params.brushRadius)) {
+                        sandMoved += sign * 10;
+                    }
+                }
+            },
             regenerate: regenerate,
         };
+        let burstUntil = 0;
         let waterWaveAmp = 0.3 + params.windStrength * 1.6;
 
         const gui = new GUI({ title: 'Explorer Controls' });
@@ -1018,6 +1091,7 @@
         fGun.add(params, 'modeSand', ['Build', 'Dig']).name('Mode');
         fGun.add(params, 'brushRadius', 8, 70, 1).name('Dune radius');
         fGun.add(params, 'flow', 0.25, 2.5, 0.05).name('Flow');
+        fGun.add(params, 'sprayBurst').name('Spray 2.5s (from camera)');
         fGun.open();
 
         // ---- Init ------------------------------------------------------------
@@ -1075,6 +1149,7 @@
             document.getElementById('dbg-x').textContent = worldPos.x.toFixed(1);
             document.getElementById('dbg-y').textContent = worldPos.y.toFixed(1);
             document.getElementById('dbg-z').textContent = worldPos.z.toFixed(1);
+            document.getElementById('dbg-sand').textContent = sandMoved.toFixed(1);
             fpsTimer += dt; fpsFrames++;
             if (fpsTimer >= 0.5) {
                 document.getElementById('dbg-fps').textContent = Math.round(fpsFrames / fpsTimer);
