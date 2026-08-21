@@ -17,6 +17,9 @@ A realistic, interactive 3D coastal sand-dune landscape built with Three.js. It 
 
 The app uses ES modules and an import map, so it must be served over HTTP (opening the file directly via `file://` will not work).
 
+**On your phone (GitHub Pages):** after Pages is enabled, open
+[https://jawhiting.github.io/coastal-sand-dunes/](https://jawhiting.github.io/coastal-sand-dunes/).
+
 ```bash
 # From the repository root
 python3 -m http.server 8000
